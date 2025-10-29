@@ -1,0 +1,48 @@
+{
+  "name": "stackure",
+  "version": "1.0.0",
+  "description": "Official Stackure authentication SDK for JavaScript and TypeScript",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/middleware.ts src/client.ts src/types.ts src/errors.ts src/validation.ts --format cjs,esm --dts",
+    "build:cdn": "tsup src/cdn.ts --format iife --global-name Stackure --out-dir dist --minify",
+    "dev": "tsup src/index.ts src/middleware.ts src/client.ts src/types.ts src/errors.ts src/validation.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "stackure",
+    "authentication",
+    "auth",
+    "sso",
+    "magic-link",
+    "passwordless",
+    "verify",
+    "sdk",
+    "typescript",
+    "express",
+    "middleware"
+  ],
+  "author": "Stackure",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mappstack/stackure"
+  }
+}
