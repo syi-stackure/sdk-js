@@ -12,15 +12,14 @@ const defaultClient = new StackureClient();
 /**
  * Send a magic link to a user's email address
  * 
- * @param options - Magic link options including email, app ID, and optional redirect URL
+ * @param options - Magic link options including email and optional app ID
  * @returns Promise resolving to response with success status and message
  * 
  * @example
  * ```typescript
  * await sendMagicLink({
  *   email: 'user@example.com',
- *   appId: 'your-app-id',
- *   redirectUrl: 'https://yourapp.com/dashboard'
+ *   appId: 'your-app-id'
  * });
  * ```
  */

@@ -4,8 +4,6 @@
 export interface StackureUser {
   /** Unique user identifier */
   user_id: string;
-  /** Account identifier the user belongs to */
-  account_id: string;
   /** User's email address */
   user_email: string;
   /** User's first name */
@@ -32,10 +30,10 @@ export interface SessionValidationResponse {
  * Response from magic link request
  */
 export interface MagicLinkResponse {
-  /** Whether the magic link was sent successfully */
-  success: boolean;
   /** Human-readable message about the request */
   message: string;
+  /** Token returned only in local environments for testing */
+  token?: string;
 }
 
 /**
@@ -61,8 +59,6 @@ export interface StackureConfig {
 export interface SendMagicLinkOptions {
   /** User's email address */
   email: string;
-  /** Your application ID from Stackure */
-  appId: string;
-  /** Optional URL to redirect to after authentication */
-  redirectUrl?: string;
+  /** Your application ID from Stackure (optional per API spec) */
+  appId?: string;
 }

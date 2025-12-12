@@ -157,15 +157,13 @@ Send a magic link email for passwordless authentication.
 ```typescript
 await sendMagicLink({
   email: 'user@example.com',
-  appId: 'your-app-id',
-  redirectUrl: 'https://yourapp.com/dashboard' // optional
+  appId: 'your-app-id' // optional
 });
 ```
 
 **Options:**
 - `email` (string, required) - User's email address
-- `appId` (string, required) - Your Stackure app ID
-- `redirectUrl` (string, optional) - Where to redirect after successful authentication
+- `appId` (string, optional) - Your Stackure app ID
 
 **Throws:**
 - `ValidationError` - Invalid email or app ID
@@ -389,7 +387,6 @@ import type {
 // Type-safe user object
 const user: StackureUser = {
   user_id: '123e4567-e89b-12d3-a456-426614174000',
-  account_id: '456e7890-f12b-34c5-d678-901234567890',
   user_email: 'user@example.com',
   user_first_name: 'John',
   user_last_name: 'Doe',

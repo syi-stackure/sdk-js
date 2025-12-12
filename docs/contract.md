@@ -31,15 +31,14 @@ import { sendMagicLink } from 'stackure';
 
 await sendMagicLink({
   email: 'user@example.com',
-  appId: 'your-app-id',
-  redirectUrl: 'https://yourapp.com/dashboard' // optional
+  appId: 'your-app-id' // optional
 });
 ```
 
 **Promise:**
 - ✅ Sends passwordless magic link email
 - ✅ Validates email format (RFC 5322)
-- ✅ Validates app ID format (UUID v4)
+- ✅ Validates app ID format (UUID v4) if provided
 - ✅ Returns within 10 seconds or throws TimeoutError
 - ✅ Throws ValidationError for invalid inputs
 - ✅ Throws NetworkError for connection issues

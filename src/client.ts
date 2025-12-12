@@ -81,7 +81,7 @@ export class StackureClient {
   /**
    * Send a magic link to a user's email
    * 
-   * @param options - Email, app ID, and optional redirect URL
+   * @param options - Email and optional app ID
    * @returns Promise resolving to response with success status
    * @throws {ValidationError} If email or app ID format is invalid
    * @throws {NetworkError} If request fails
@@ -96,12 +96,11 @@ export class StackureClient {
    * ```
    */
   async sendMagicLink(options: SendMagicLinkOptions): Promise<MagicLinkResponse> {
-    const { email, appId, redirectUrl } = options;
+    const { email, appId } = options;
 
     validateEmail(email);
-    validateUUID(appId, 'App ID');
-    if (redirectUrl) {
-      validateURL(redirectUrl, 'Redirect URL');
+    if (appId) {
+      validateUUID(appId, 'App ID');
     }
 
     const response = await this.fetchWithTimeout(
@@ -110,9 +109,8 @@ export class StackureClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email,
-          app_id: appId,
-          redirect_url: redirectUrl,
+          user_email: email,
+          ...(appId && { app_id: appId }),
         }),
       }
     );
@@ -143,9 +141,8 @@ export class StackureClient {
     const response = await this.fetchWithTimeout(
       `${this.baseUrl}/api/public/auth/session/validate?app_id=${appId}`,
       {
-        method: 'POST',
+        method: 'GET',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
       }
     );
 
@@ -207,7 +204,6 @@ export class StackureClient {
       throw new NetworkError('signIn() requires a browser environment when email is not provided');
     }
 
-    const redirectUrl = window.location.href;
-    window.location.href = `${this.baseUrl}/sign-in/magic-link?app_id=${appId}&redirect_url=${encodeURIComponent(redirectUrl)}`;
+    window.location.href = `${this.baseUrl}/sign-in/magic-link?app_id=${appId}`;
   }
 }
