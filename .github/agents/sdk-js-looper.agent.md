@@ -2,11 +2,11 @@
 name: sdk-js-looper
 description: Looping agent for quality checks.
 argument-hint: Start looping.
-tools: ['agent']
+tools: ['agent', 'edit']
 handoffs:
   - label: Send to agent
     agent: sdk-js-codi
-    prompt: Are you truly happy with your quality now? If you are, use the "Quality confirmed" handoff. If not, fix the issues and use the "Issues fixed, re-check" handoff.
+    prompt: Review the sdk-js codebase at /Users/sashank.yalamanchili/Documents/GitHub/sdk-js for code quality, correctness, and adherence to best practices. Fix any issues you find. If it looks good and you made NO changes in this pass, use the "Quality confirmed" handoff. If you made any changes at all, use the "Issues fixed, re-check" handoff.
 ---
 
 You are the looping agent responsible for ensuring the quality of the code is up to standard.

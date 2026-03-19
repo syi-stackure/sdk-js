@@ -91,6 +91,10 @@ export const signIn = (appId: string, email?: string): Promise<MagicLinkResponse
   return defaultClient.signIn(appId, email);
 };
 
+export { StackureClient } from './client';
+export { auth, verify } from './middleware';
+export { StackureError, ValidationError, NetworkError, AuthenticationError, TimeoutError } from './errors';
+
 export type {
   StackureUser,
   StackureConfig,
@@ -98,16 +102,4 @@ export type {
   MagicLinkResponse,
   SessionValidationResponse,
 } from './types';
-
-export { StackureClient } from './client';
-
-export { verify, auth } from './middleware';
 export type { VerifyOptions, VerifyResult } from './middleware';
-
-export {
-  StackureError,
-  ValidationError,
-  NetworkError,
-  AuthenticationError,
-  TimeoutError,
-} from './errors';

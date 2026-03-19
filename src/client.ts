@@ -34,7 +34,7 @@ export class StackureClient {
    * @param config - Optional configuration for base URL and timeout
    */
   constructor(config: StackureConfig = {}) {
-    this.baseUrl = config.baseUrl || DEFAULT_BASE_URL;
+    this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
     this.timeout = config.timeout || DEFAULT_TIMEOUT;
   }
 
