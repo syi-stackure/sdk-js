@@ -47,8 +47,8 @@ export const sendMagicLink = (options: SendMagicLinkOptions): Promise<MagicLinkR
  * }
  * ```
  */
-export const validateSession = (appId: string): Promise<SessionValidationResponse> => {
-  return defaultClient.validateSession(appId);
+export const validateSession = (appId: string, cookieHeader?: string): Promise<SessionValidationResponse> => {
+  return defaultClient.validateSession(appId, cookieHeader);
 };
 
 /**
@@ -99,6 +99,11 @@ export type {
   SessionValidationResponse,
 } from './types';
 
+export { StackureClient } from './client';
+
+export { verify, auth } from './middleware';
+export type { VerifyOptions, VerifyResult } from './middleware';
+
 export {
   StackureError,
   ValidationError,
@@ -106,8 +111,3 @@ export {
   AuthenticationError,
   TimeoutError,
 } from './errors';
-
-export { verify, auth } from './middleware';
-export type { VerifyOptions, VerifyResult } from './middleware';
-
-export { StackureClient } from './client';

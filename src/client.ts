@@ -5,7 +5,7 @@ import type {
   SessionValidationResponse,
 } from './types';
 import { NetworkError, TimeoutError, AuthenticationError } from './errors';
-import { validateEmail, validateUUID, validateURL } from './validation';
+import { validateEmail, validateUUID } from './validation';
 
 const DEFAULT_BASE_URL = 'https://stackure.com';
 const DEFAULT_TIMEOUT = 10000;
@@ -60,6 +60,37 @@ export class StackureClient {
     }
   }
 
+  private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
+    const maxRetries = 2;
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        await new Promise<void>(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt - 1)));
+      }
+
+      try {
+        const response = await this.fetchWithTimeout(url, options);
+
+        // Retry 5xx errors unless this is the last attempt.
+        if (response.status >= 500 && attempt < maxRetries) {
+          lastError = new NetworkError(`Server error (${response.status})`, response.status);
+          continue;
+        }
+
+        return await this.handleResponse<T>(response);
+      } catch (error: any) {
+        // Timeouts are not retried — a second attempt would obscure latency.
+        if (error instanceof TimeoutError) {
+          throw error;
+        }
+        lastError = error;
+      }
+    }
+
+    throw lastError!;
+  }
+
   private async handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'Unknown error');
@@ -103,7 +134,7 @@ export class StackureClient {
       validateUUID(appId, 'App ID');
     }
 
-    const response = await this.fetchWithTimeout(
+    return this.request<MagicLinkResponse>(
       `${this.baseUrl}/api/public/auth/magic-link/send`,
       {
         method: 'POST',
@@ -114,8 +145,6 @@ export class StackureClient {
         }),
       }
     );
-
-    return this.handleResponse<MagicLinkResponse>(response);
   }
 
   /**
@@ -135,18 +164,20 @@ export class StackureClient {
    * }
    * ```
    */
-  async validateSession(appId: string): Promise<SessionValidationResponse> {
+  async validateSession(appId: string, cookieHeader?: string): Promise<SessionValidationResponse> {
     validateUUID(appId, 'App ID');
 
-    const response = await this.fetchWithTimeout(
-      `${this.baseUrl}/api/public/auth/session/validate?app_id=${appId}`,
-      {
-        method: 'GET',
-        credentials: 'include',
-      }
-    );
+    const requestInit: RequestInit = { method: 'GET' };
+    if (cookieHeader) {
+      requestInit.headers = { Cookie: cookieHeader };
+    } else {
+      requestInit.credentials = 'include';
+    }
 
-    return this.handleResponse<SessionValidationResponse>(response);
+    return this.request<SessionValidationResponse>(
+      `${this.baseUrl}/api/public/auth/session/validate?app_id=${appId}`,
+      requestInit
+    );
   }
 
   /**
@@ -162,15 +193,13 @@ export class StackureClient {
    * ```
    */
   async logout(): Promise<void> {
-    const response = await this.fetchWithTimeout(
+    await this.request<void>(
       `${this.baseUrl}/api/public/auth/sign-out`,
       {
         method: 'POST',
         credentials: 'include',
       }
     );
-
-    await this.handleResponse<void>(response);
   }
 
   /**

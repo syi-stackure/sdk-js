@@ -1,5 +1,7 @@
-import { validateSession } from './index';
+import { StackureClient } from './client';
 import type { StackureUser } from './types';
+
+const client = new StackureClient();
 
 /**
  * Options for authentication verification
@@ -9,6 +11,8 @@ export interface VerifyOptions {
   appId: string;
   /** Optional list of required roles (user must have at least one) */
   roles?: string[];
+  /** Optional incoming HTTP request for forwarding authentication cookies in server-side environments */
+  request?: { headers?: Record<string, string | string[] | undefined> };
 }
 
 /**
@@ -56,7 +60,9 @@ export interface VerifyResult {
  */
 export async function verify(options: VerifyOptions): Promise<VerifyResult> {
   try {
-    const session = await validateSession(options.appId);
+    const cookieHeader = options.request?.headers?.['cookie'];
+    const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
+    const session = await client.validateSession(options.appId, cookieStr);
 
     if (!session.authenticated || !session.user) {
       return {
@@ -125,7 +131,7 @@ export async function verify(options: VerifyOptions): Promise<VerifyResult> {
  */
 export function auth(options: VerifyOptions) {
   return async (req: any, res: any, next: any): Promise<void> => {
-    const result = await verify(options);
+    const result = await verify({ ...options, request: req });
 
     if (!result.authenticated && result.error) {
       const acceptHeader = req.headers?.accept || '';
