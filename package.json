@@ -17,7 +17,6 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts src/middleware.ts src/client.ts src/types.ts src/errors.ts src/validation.ts --format cjs,esm --dts",
-    "build:cdn": "tsup src/cdn.ts --format iife --global-name Stackure --out-dir dist --minify",
     "dev": "tsup src/index.ts src/middleware.ts src/client.ts src/types.ts src/errors.ts src/validation.ts --format cjs,esm --dts --watch",
     "typecheck": "tsc --noEmit"
   },

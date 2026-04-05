@@ -15,14 +15,6 @@ npm install stackure
 ```
 **Zero configuration required.** Works immediately.
 
-### **Browser Support**
-```html
-<script src="https://cdn.stackure.com/auth.js"></script>
-```
-**Global `Stackure` object.** No build step needed.
-
----
-
 ## **Client Functions**
 
 ### **Magic Link Authentication**
@@ -234,31 +226,6 @@ await client.sendMagicLink({
 - ✅ Works with staging/custom environments
 - ✅ Configurable timeout
 - ✅ Same API as default functions
-
----
-
-## **Browser Compatibility**
-
-### **CDN Usage**
-```html
-<script src="https://cdn.stackure.com/auth.js"></script>
-<script>
-  // All functions available on global Stackure object
-  Stackure.signIn('your-app-id');
-  
-  Stackure.validateSession('your-app-id').then(session => {
-    if (session.authenticated) {
-      console.log('Welcome:', session.user.user_email);
-    }
-  });
-</script>
-```
-
-**Promise:**
-- ✅ Works in all modern browsers
-- ✅ Global `Stackure` object
-- ✅ Same API as npm package
-- ✅ Minified and optimized
 
 ---
 

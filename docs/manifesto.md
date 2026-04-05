@@ -18,28 +18,10 @@ Launch all your apps.
 **Or sign in at your app.**  
 Embed auth directly.
 
-Universal button
-```html
-<script src="https://cdn.stackure.com/auth.js"></script>
-<button onclick="Stackure.signIn('my-app-id')">
-  Sign in with Stackure
-</button>
-```
-
-Custom UI
 ```js
-// Via CDN
-<script src="https://cdn.stackure.com/auth.js"></script>
-
-await Stackure.sendMagicLink({ 
-  email: 'user@example.com',
-  appId: 'my-app-id'
-});
-
-// Or via npm: npm install stackure
 import { sendMagicLink } from 'stackure';
 
-await sendMagicLink({ 
+await sendMagicLink({
   email: 'user@example.com',
   appId: 'my-app-id'
 });
@@ -47,11 +29,6 @@ await sendMagicLink({
 
 **Sign out everywhere.**
 ```js
-// Via CDN
-<script src="https://cdn.stackure.com/auth.js"></script>
-Stackure.logout();
-
-// Or via npm: npm install stackure
 import { logout } from 'stackure';
 
 logout();

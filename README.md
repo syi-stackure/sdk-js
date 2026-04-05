@@ -8,12 +8,6 @@ Authentication for your app. One line.
 npm install stackure
 ```
 
-Or via CDN:
-
-```html
-<script src="https://cdn.stackure.com/auth.js"></script>
-```
-
 ## Protect a Route
 
 ```js
@@ -53,18 +47,6 @@ const session = await validateSession('my-app-id');
 // session.authenticated, session.user, session.sign_in_url
 
 await logout();
-```
-
-## CDN Usage
-
-```html
-<script src="https://cdn.stackure.com/auth.js"></script>
-<button onclick="Stackure.signIn('my-app-id')">Sign in with Stackure</button>
-```
-
-```js
-await Stackure.sendMagicLink({ email: 'user@example.com', appId: 'my-app-id' });
-await Stackure.logout();
 ```
 
 ## Custom Client
