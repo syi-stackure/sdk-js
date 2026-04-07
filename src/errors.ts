@@ -67,6 +67,22 @@ export class AuthenticationError extends StackureError {
 }
 
 /**
+ * Error thrown when access is forbidden
+ *
+ * @example
+ * ```typescript
+ * throw new ForbiddenError('Insufficient permissions');
+ * ```
+ */
+export class ForbiddenError extends StackureError {
+  constructor(message: string) {
+    super(message, 'FORBIDDEN_ERROR', 403);
+    this.name = 'ForbiddenError';
+    Object.setPrototypeOf(this, ForbiddenError.prototype);
+  }
+}
+
+/**
  * Error thrown when request times out
  * 
  * @example

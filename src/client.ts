@@ -4,7 +4,7 @@ import type {
   MagicLinkResponse,
   SessionValidationResponse,
 } from './types';
-import { NetworkError, TimeoutError, AuthenticationError } from './errors';
+import { NetworkError, TimeoutError, AuthenticationError, ForbiddenError } from './errors';
 import { validateEmail, validateUUID } from './validation';
 
 const DEFAULT_BASE_URL = 'https://stackure.com';
@@ -98,7 +98,11 @@ export class StackureClient {
       if (response.status === 401) {
         throw new AuthenticationError(errorText || 'Authentication failed');
       }
-      
+
+      if (response.status === 403) {
+        throw new ForbiddenError(errorText || 'Access forbidden');
+      }
+
       throw new NetworkError(`API error (${response.status}): ${errorText}`, response.status);
     }
 

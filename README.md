@@ -62,10 +62,10 @@ const client = new StackureClient({
 
 ## Errors
 
-`ValidationError` | `NetworkError` | `AuthenticationError` | `TimeoutError`
+`ValidationError` | `NetworkError` | `AuthenticationError` | `ForbiddenError` | `TimeoutError`
 
 ```js
-import { ValidationError, NetworkError, AuthenticationError, TimeoutError } from 'stackure';
+import { ValidationError, NetworkError, AuthenticationError, ForbiddenError, TimeoutError } from 'stackure';
 ```
 
 ## License

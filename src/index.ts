@@ -93,7 +93,7 @@ export const signIn = (appId: string, email?: string): Promise<MagicLinkResponse
 
 export { StackureClient } from './client';
 export { auth, verify } from './middleware';
-export { StackureError, ValidationError, NetworkError, AuthenticationError, TimeoutError } from './errors';
+export { StackureError, ValidationError, NetworkError, AuthenticationError, ForbiddenError, TimeoutError } from './errors';
 
 export type {
   StackureUser,
