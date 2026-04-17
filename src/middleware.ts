@@ -1,68 +1,43 @@
-import { StackureClient } from './client';
-import type { StackureUser } from './types';
-
-const client = new StackureClient();
+import { StackureError } from './errors.js';
+import { validateSessionRequest } from './_http.js';
+import type { User, VerifyResult } from './types.js';
 
 /**
- * Options for authentication verification
+ * Options for `verify()`.
  */
 export interface VerifyOptions {
   /** Your Stackure application ID */
   appId: string;
-  /** Optional list of required roles (user must have at least one) */
+  /** Optional required roles (user must hold at least one) */
   roles?: string[];
-  /** Optional incoming HTTP request for forwarding authentication cookies in server-side environments */
+  /**
+   * Optional incoming request whose cookies should be forwarded for
+   * server-side verification. Any object exposing a Node-style `headers`
+   * bag works (Express, Fastify, bare http.IncomingMessage).
+   */
   request?: { headers?: Record<string, string | string[] | undefined> };
 }
 
 /**
- * Result of authentication verification
- */
-export interface VerifyResult {
-  /** Whether the request is authenticated */
-  authenticated: boolean;
-  /** Authenticated user information (only present if authenticated) */
-  user?: StackureUser;
-  /** Error details (only present if not authenticated) */
-  error?: {
-    /** HTTP status code (401, 403, or 500) */
-    code: number;
-    /** Human-readable error message */
-    message: string;
-    /** URL to redirect unauthenticated users for sign-in */
-    sign_in_url?: string;
-  };
-}
-
-/**
- * Verify authentication for a request
- * 
- * Pure verification function - returns result without automatic error handling.
- * You control what happens next based on the result.
- * 
- * @param options - Verification options including app ID and optional roles
- * @returns Promise resolving to verification result with user data or error details
- * 
+ * Verify an incoming request without throwing.
+ *
+ * Returns a `VerifyResult` — callers inspect `authenticated` and decide how
+ * to respond (redirect, JSON 401, render an error page, etc.).
+ *
  * @example
  * ```typescript
- * const result = await verify({ 
- *   appId: 'your-app-id',
- *   roles: ['admin'] 
- * });
- * 
+ * const result = await verify({ appId: 'my-app-id', request: req });
  * if (!result.authenticated) {
- *   return res.status(result.error.code).json(result.error);
+ *   return res.status(result.error!.code).json(result.error);
  * }
- * 
- * // Use result.user
- * res.json({ user: result.user });
+ * // result.user
  * ```
  */
 export async function verify(options: VerifyOptions): Promise<VerifyResult> {
   try {
     const cookieHeader = options.request?.headers?.['cookie'];
     const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
-    const session = await client.validateSession(options.appId, cookieStr);
+    const session = await validateSessionRequest(options.appId, cookieStr);
 
     if (!session.authenticated || !session.user) {
       return {
@@ -76,81 +51,102 @@ export async function verify(options: VerifyOptions): Promise<VerifyResult> {
     }
 
     if (options.roles && options.roles.length > 0) {
-      const userRoles = session.user.user_roles || [];
-      const hasRequiredRole = options.roles.some(role => userRoles.includes(role));
-
-      if (!hasRequiredRole) {
+      const have = session.user.user_roles ?? [];
+      const ok = options.roles.some((r) => have.includes(r));
+      if (!ok) {
         return {
           authenticated: false,
           user: session.user,
-          error: {
-            code: 403,
-            message: `Requires one of: ${options.roles.join(', ')}`,
-          },
+          error: { code: 403, message: `Requires one of: ${options.roles.join(', ')}` },
         };
       }
     }
 
-    return {
-      authenticated: true,
-      user: session.user,
-    };
+    return { authenticated: true, user: session.user };
   } catch (error) {
-    console.error('Stackure verification error:', error);
+    const message =
+      error instanceof StackureError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : 'Authentication verification failed';
+    console.error('stackure: verification error:', message);
     return {
       authenticated: false,
-      error: {
-        code: 500,
-        message: 'Authentication verification failed',
-      },
+      error: { code: 500, message: 'Authentication verification failed' },
     };
   }
 }
 
 /**
- * Smart authentication middleware for Express-style frameworks
- * 
- * Automatically handles authentication and adapts response based on request type:
- * - API requests (Accept: application/json) → Returns JSON error response
- * - Browser requests (Accept: text/html) → Redirects to Stackure sign-in page
- * - Ambiguous/missing Accept header → Defaults to JSON (safe for modern APIs)
- * 
- * On successful authentication, injects user into `req.user` and calls `next()`.
- * 
- * @param options - Authentication options including app ID and optional roles
- * @returns Express-style middleware function
- * 
+ * Minimal Express-style middleware request shape the `auth` middleware reads
+ * from. Compatible with Express, Connect, Fastify (adapted), and anything
+ * exposing Node's IncomingMessage-style `headers` bag.
+ */
+interface MiddlewareRequest {
+  headers?: Record<string, string | string[] | undefined>;
+  user?: User;
+}
+
+/** Minimal response shape the `auth` middleware writes to. */
+interface MiddlewareResponse {
+  redirect: (status: number, url: string) => void;
+  status: (code: number) => { json: (body: unknown) => unknown };
+}
+
+/** Express-style `next` callback. */
+type MiddlewareNext = (err?: unknown) => void;
+
+/**
+ * HTTP middleware that enforces authentication.
+ *
+ * On success, the user is attached to `req.user` (retrieve it there or via
+ * the request reference you captured).
+ *
+ * On 401 with a browser client (Accept: text/html), redirects to the
+ * sign-in URL. On 401 for API clients, or on 403, returns JSON.
+ *
  * @example
  * ```typescript
- * import { auth } from 'stackure';
- * 
- * app.get('/admin', auth({ appId: 'your-app-id', roles: ['admin'] }), (req, res) => {
+ * app.get('/admin', auth({ appId: 'my-app-id', roles: ['admin'] }), (req, res) => {
  *   res.json({ user: req.user });
  * });
  * ```
  */
 export function auth(options: VerifyOptions) {
-  return async (req: any, res: any, next: any): Promise<void> => {
+  return async (
+    req: MiddlewareRequest,
+    res: MiddlewareResponse,
+    next: MiddlewareNext,
+  ): Promise<void> => {
     const result = await verify({ ...options, request: req });
 
     if (!result.authenticated && result.error) {
-      const acceptHeader = req.headers?.accept || '';
-      const acceptsHtml = acceptHeader.includes('text/html');
-      const acceptsJson = acceptHeader.includes('application/json');
+      const acceptHeader = req.headers?.['accept'];
+      const acceptStr = Array.isArray(acceptHeader) ? acceptHeader.join(',') : (acceptHeader ?? '');
+      const acceptsHtml = acceptStr.includes('text/html');
+      const acceptsJson = acceptStr.includes('application/json');
 
       if (acceptsHtml && !acceptsJson && result.error.sign_in_url) {
-        return res.redirect(302, result.error.sign_in_url);
+        res.redirect(302, result.error.sign_in_url);
+        return;
       }
 
-      return res.status(result.error.code).json({
-        error: result.error.code === 401 ? 'Unauthorized' : result.error.code === 403 ? 'Forbidden' : 'Error',
+      const label =
+        result.error.code === 401
+          ? 'Unauthorized'
+          : result.error.code === 403
+            ? 'Forbidden'
+            : 'Error';
+      res.status(result.error.code).json({
+        error: label,
         message: result.error.message,
         sign_in_url: result.error.sign_in_url,
       });
+      return;
     }
 
     req.user = result.user;
     next();
   };
 }
-

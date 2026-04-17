@@ -15,7 +15,7 @@ Authentication for your app. One line.
 npm install stackure
 ```
 
-Requires Node.js 18+.
+Requires Node.js 18+. ESM only.
 
 ## Protect a route
 
@@ -38,58 +38,59 @@ import { verify } from 'stackure';
 const result = await verify({ appId: 'my-app-id', request: req });
 
 if (!result.authenticated) {
-  return res.status(result.error.code).json({ error: result.error.message });
+  return res.status(result.error.code).json(result.error);
 }
 
 res.json({ user: result.user });
 ```
 
-## Client functions
+## Send a magic link
 
 ```js
-import { sendMagicLink, validateSession, signIn, logout } from 'stackure';
+import { sendMagicLink } from 'stackure';
 
 await sendMagicLink({ email: 'user@example.com', appId: 'my-app-id' });
-await signIn('my-app-id');
-
-const session = await validateSession('my-app-id');
-// session.authenticated, session.user, session.sign_in_url
-
-await logout();
 ```
 
-## Custom client
+## Log out
 
 ```js
-import { StackureClient } from 'stackure';
+import { logout } from 'stackure';
 
-const client = new StackureClient({
-  baseUrl: 'https://staging.stackure.com',
-  timeout: 5000,
-});
+await logout(req.headers.cookie);
+```
+
+## Configuration
+
+Set `STACKURE_BASE_URL` to point at a non-production environment:
+
+```bash
+STACKURE_BASE_URL=https://stage.stackure.com node app.js
 ```
 
 ## Errors
 
-`ValidationError` | `NetworkError` | `AuthenticationError` | `ForbiddenError` | `TimeoutError`
+All thrown errors are `StackureError`. Switch on `.code`:
 
 ```js
-import {
-  ValidationError,
-  NetworkError,
-  AuthenticationError,
-  ForbiddenError,
-  TimeoutError,
-} from 'stackure';
+import { StackureError } from 'stackure';
+
+try {
+  await sendMagicLink({ email });
+} catch (err) {
+  if (err instanceof StackureError) {
+    // err.code is one of: "validation" | "auth" | "forbidden" | "timeout" | "network"
+  }
+}
 ```
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/) — release-please depends on this.
+Open a PR. Tag a release when ready: `git tag vX.Y.Z && git push --tags` — the release workflow builds, signs, and publishes.
 
 ## Security
 
-See [SECURITY.md](./SECURITY.md). Releases are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (Sigstore-backed SLSA L3).
+Report vulnerabilities via [GitHub Security Advisories](https://github.com/syi-stackure/sdk-js/security/advisories/new). Releases ship with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (Sigstore-backed SLSA L3).
 
 ## License
 

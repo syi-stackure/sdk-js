@@ -1,0 +1,27 @@
+name: Check build (auto-merge if green)
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: check-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - name: Auto-merge if green
+        run: gh pr merge --squash --delete-branch "${{ github.event.pull_request.html_url }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

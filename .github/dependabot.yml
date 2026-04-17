@@ -1,12 +1,12 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: "/"
+    directory: '/'
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
-      timezone: "Etc/UTC"
+      time: '09:00'
+      timezone: 'Etc/UTC'
     assignees:
       - ysashank
     groups:
@@ -16,12 +16,12 @@ updates:
           - patch
 
   - package-ecosystem: github-actions
-    directory: "/"
+    directory: '/'
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
-      timezone: "Etc/UTC"
+      time: '09:00'
+      timezone: 'Etc/UTC'
     assignees:
       - ysashank
     groups:

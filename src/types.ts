@@ -1,7 +1,7 @@
 /**
- * User information returned from Stackure authentication
+ * An authenticated Stackure user.
  */
-export interface StackureUser {
+export interface User {
   /** Unique user identifier */
   user_id: string;
   /** User's email address */
@@ -10,55 +10,34 @@ export interface StackureUser {
   user_first_name: string;
   /** User's last name */
   user_last_name: string;
-  /** List of permissions/roles assigned to the user */
+  /** Roles assigned to the user for the current app */
   user_roles: string[];
 }
 
 /**
- * Response from session validation request
+ * Outcome of a `verify()` call. Exactly one of `user` or `error` is populated
+ * depending on `authenticated`.
  */
-export interface SessionValidationResponse {
-  /** Whether the session is authenticated */
+export interface VerifyResult {
+  /** Whether the request is authenticated */
   authenticated: boolean;
-  /** User information (only present if authenticated) */
-  user?: StackureUser;
-  /** Sign-in URL to redirect unauthenticated users */
-  sign_in_url?: string;
+  /** Authenticated user (only when `authenticated` is true) */
+  user?: User;
+  /** Error details (only when `authenticated` is false) */
+  error?: {
+    /** HTTP status code — 401, 403, or 500 */
+    code: number;
+    /** Human-readable message */
+    message: string;
+    /** URL to redirect an unauthenticated user for sign-in */
+    sign_in_url?: string;
+  };
 }
 
 /**
- * Response from magic link request
+ * Successful `sendMagicLink()` response.
  */
 export interface MagicLinkResponse {
-  /** Human-readable message about the request */
+  /** Human-readable confirmation (e.g. "Magic link sent") */
   message: string;
-  /** Token returned only in local environments for testing */
-  token?: string;
-}
-
-/**
- * Configuration options for the Stackure SDK
- */
-export interface StackureConfig {
-  /**
-   * Base URL of the Stackure API
-   * @default "https://stackure.com"
-   */
-  baseUrl?: string;
-  
-  /**
-   * Request timeout in milliseconds
-   * @default 10000
-   */
-  timeout?: number;
-}
-
-/**
- * Options for sending a magic link to a user
- */
-export interface SendMagicLinkOptions {
-  /** User's email address */
-  email: string;
-  /** Your application ID from Stackure (optional per API spec) */
-  appId?: string;
 }

@@ -1,105 +1,38 @@
-import { StackureClient } from './client';
-import type {
-  StackureUser,
-  StackureConfig,
-  SendMagicLinkOptions,
-  MagicLinkResponse,
-  SessionValidationResponse,
-} from './types';
-
-const defaultClient = new StackureClient();
+import { logoutRequest, sendMagicLinkRequest } from './_http.js';
+import type { MagicLinkResponse } from './types.js';
 
 /**
- * Send a magic link to a user's email address
- * 
- * @param options - Magic link options including email and optional app ID
- * @returns Promise resolving to response with success status and message
- * 
+ * Send a passwordless sign-in email to a user.
+ *
  * @example
  * ```typescript
- * await sendMagicLink({
- *   email: 'user@example.com',
- *   appId: 'your-app-id'
- * });
+ * await sendMagicLink({ email: 'user@example.com', appId: 'my-app-id' });
  * ```
  */
-export const sendMagicLink = (options: SendMagicLinkOptions): Promise<MagicLinkResponse> => {
-  return defaultClient.sendMagicLink(options);
-};
+export function sendMagicLink(options: {
+  email: string;
+  appId?: string;
+}): Promise<MagicLinkResponse> {
+  return sendMagicLinkRequest(options.email, options.appId);
+}
 
 /**
- * Validate the current session for a specific application
- * 
- * Checks if the user has a valid authenticated session for your app.
- * Automatically includes session cookies in the request.
- * 
- * @param appId - Your Stackure application ID
- * @returns Promise resolving to session validation result with user data if authenticated
- * 
+ * Revoke the session identified by the given cookie header.
+ *
+ * @param cookieHeader - Raw Cookie header from the request, or omit to rely
+ *   on browser cookies (client-side calls only).
+ *
  * @example
  * ```typescript
- * const session = await validateSession('your-app-id');
- * 
- * if (session.authenticated) {
- *   console.log('User:', session.user);
- * } else {
- *   console.log('Sign in at:', session.sign_in_url);
- * }
+ * await logout(req.headers.cookie);
  * ```
  */
-export const validateSession = (appId: string, cookieHeader?: string): Promise<SessionValidationResponse> => {
-  return defaultClient.validateSession(appId, cookieHeader);
-};
+export function logout(cookieHeader?: string): Promise<void> {
+  return logoutRequest(cookieHeader);
+}
 
-/**
- * Sign out the current user from all Stackure applications
- * 
- * Invalidates the user's session across all apps using Stackure authentication.
- * 
- * @returns Promise that resolves when sign out is complete
- * 
- * @example
- * ```typescript
- * await logout();
- * // User is now signed out from all apps
- * ```
- */
-export const logout = (): Promise<void> => {
-  return defaultClient.logout();
-};
-
-/**
- * Initiate sign-in flow for a user
- * 
- * If email is provided, sends a magic link directly.
- * If no email, redirects to Stackure sign-in page (browser only).
- * 
- * @param appId - Your Stackure application ID
- * @param email - Optional email address to send magic link to
- * @returns Promise resolving to magic link response (if email provided) or void (if redirecting)
- * 
- * @example
- * ```typescript
- * // Send magic link to specific email
- * await signIn('your-app-id', 'user@example.com');
- * 
- * // Redirect to sign-in page (browser only)
- * await signIn('your-app-id');
- * ```
- */
-export const signIn = (appId: string, email?: string): Promise<MagicLinkResponse | void> => {
-  return defaultClient.signIn(appId, email);
-};
-
-export { StackureClient } from './client';
-export { auth, verify } from './middleware';
-export { StackureError, ValidationError, NetworkError, AuthenticationError, ForbiddenError, TimeoutError } from './errors';
-
-export type {
-  StackureUser,
-  StackureConfig,
-  SendMagicLinkOptions,
-  MagicLinkResponse,
-  SessionValidationResponse,
-} from './types';
-export type { VerifyOptions, VerifyResult } from './middleware';
+export { auth, verify } from './middleware.js';
+export { StackureError } from './errors.js';
+export type { StackureErrorCode } from './errors.js';
+export type { User, VerifyResult, MagicLinkResponse } from './types.js';
+export type { VerifyOptions } from './middleware.js';
