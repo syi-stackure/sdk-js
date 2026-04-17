@@ -54,6 +54,8 @@ jobs:
         with:
           node-version: lts/*
           registry-url: https://registry.npmjs.org
+      - name: Ensure npm supports OIDC trusted publishing
+        run: npm install -g npm@latest
       - run: npm install
       - run: npm run build
       - name: Pack
@@ -63,10 +65,8 @@ jobs:
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ steps.pack.outputs.tarball }}
-      - name: Publish to npm
+      - name: Publish to npm (via OIDC trusted publisher)
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create + push tag
         run: |
           git config user.name "github-actions[bot]"
