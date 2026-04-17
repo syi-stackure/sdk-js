@@ -1,4 +1,4 @@
-name: Release on VERSION bump
+name: Release (date-based auto)
 
 on:
   push:
@@ -14,42 +14,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check:
+  release:
     runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.gate.outputs.skip }}
-      version: ${{ steps.v.outputs.version }}
-      tag: ${{ steps.v.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: Read version
+      - name: Compute date-based version
         id: v
         run: |
-          version=$(node -p "require('./package.json').version")
+          version="1.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-      - name: Should release?
-        id: gate
-        run: |
-          if git rev-parse --verify "refs/tags/${{ steps.v.outputs.tag }}" >/dev/null 2>&1; then
-            echo "Tag ${{ steps.v.outputs.tag }} already exists. Skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  release:
-    needs: check
-    if: needs.check.outputs.skip == 'false'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
@@ -58,6 +32,8 @@ jobs:
         run: npm install -g npm@latest
       - run: npm install
       - run: npm run build
+      - name: Set version in package.json
+        run: npm pkg set version="${{ steps.v.outputs.version }}"
       - name: Pack
         id: pack
         run: echo "tarball=$(npm pack --silent)" >> "$GITHUB_OUTPUT"
@@ -71,11 +47,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "${{ needs.check.outputs.tag }}"
-          git push origin "${{ needs.check.outputs.tag }}"
+          git tag "${{ steps.v.outputs.tag }}"
+          git push origin "${{ steps.v.outputs.tag }}"
       - name: GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.check.outputs.tag }}
+          tag_name: ${{ steps.v.outputs.tag }}
           files: ${{ steps.pack.outputs.tarball }}
           generate_release_notes: true
