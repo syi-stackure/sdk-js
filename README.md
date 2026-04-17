@@ -1,6 +1,6 @@
 # Stackure JavaScript SDK
 
-[![CI](https://github.com/syi-stackure/sdk-js/actions/workflows/ci.yml/badge.svg)](https://github.com/syi-stackure/sdk-js/actions/workflows/ci.yml)
+[![Check build](https://github.com/syi-stackure/sdk-js/actions/workflows/check-build.yml/badge.svg)](https://github.com/syi-stackure/sdk-js/actions/workflows/check-build.yml)
 [![npm version](https://img.shields.io/npm/v/stackure.svg)](https://www.npmjs.com/package/stackure)
 [![npm downloads](https://img.shields.io/npm/dm/stackure.svg)](https://www.npmjs.com/package/stackure)
 [![Node.js version](https://img.shields.io/node/v/stackure.svg)](https://nodejs.org)
