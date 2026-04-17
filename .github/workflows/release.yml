@@ -29,7 +29,7 @@ jobs:
           tarball=$(npm pack --silent)
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
       - name: Attest package provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ steps.pack.outputs.tarball }}
       - name: Publish to npm
