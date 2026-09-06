@@ -38,7 +38,7 @@ function isHttps(req: IncomingMessage): boolean {
  *
  * @example
  * ```typescript
- * const result = await verify(appId, req, 'view_any_app');
+ * const result = await verify(appId, req, 'can_approve_invoice');
  * if (!result.authenticated) return res.status(result.error!.code).json(result.error);
  * ```
  */
@@ -138,7 +138,7 @@ async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<bo
  *
  * @example
  * ```typescript
- * app.get('/admin', auth(appId, 'view_any_app'), (req, res) => {
+ * app.get('/admin', auth(appId, 'can_approve_invoice'), (req, res) => {
  *   res.json({ user: userFromRequest(req) });
  * });
  * ```
