@@ -26,7 +26,7 @@ import { auth, userFromRequest } from 'stackure';
 
 const appId = '7f3c1a2e-9b4d-4e6f-8a1b-2c3d4e5f6071'; // your app's UUID in Stackure
 
-app.get('/admin', auth(appId, 'view_any_app'), (req, res) => {
+app.get('/admin', auth(appId, 'can_approve_invoice'), (req, res) => {
   const user = userFromRequest(req);
   res.json({ email: user.user_email, permissions: user.user_permissions });
 });
@@ -54,7 +54,7 @@ Every request is validated against Stackure, so revocation is immediate.
 ```js
 import { verify } from 'stackure';
 
-const result = await verify(appId, req, 'view_any_app');
+const result = await verify(appId, req, 'can_approve_invoice');
 
 if (!result.authenticated) {
   // result.error.code, result.error.message, result.error.sign_in_url
