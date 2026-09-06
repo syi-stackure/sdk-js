@@ -6,14 +6,14 @@
  * @example
  * ```typescript
  * try {
- *   await stackure.sendMagicLink({ email });
+ *   await sendMagicLink(email);
  * } catch (err) {
  *   if (err instanceof StackureError) {
  *     switch (err.code) {
  *       case 'validation': // bad input
  *       case 'auth':       // 401 from the API
  *       case 'forbidden':  // 403 from the API
- *       case 'timeout':    // request exceeded timeout
+ *       case 'timeout':    // request exceeded the 2s timeout
  *       case 'network':    // everything else
  *     }
  *   }
@@ -21,20 +21,16 @@
  * ```
  */
 export class StackureError extends Error {
-  /**
-   * @param code - One of "validation" | "auth" | "forbidden" | "timeout" | "network"
-   * @param message - Human-readable description
-   * @param statusCode - HTTP status from the API, or undefined if the error
-   *   happened before a response was received
-   */
-  constructor(
-    public code: StackureErrorCode,
-    message: string,
-    public statusCode?: number,
-  ) {
+  /** One of "validation" | "auth" | "forbidden" | "timeout" | "network" */
+  readonly code: StackureErrorCode;
+  /** HTTP status from the API, or undefined if the error predates a response */
+  readonly statusCode?: number | undefined;
+
+  constructor(code: StackureErrorCode, message: string, statusCode?: number) {
     super(message);
     this.name = 'StackureError';
-    Object.setPrototypeOf(this, StackureError.prototype);
+    this.code = code;
+    this.statusCode = statusCode;
   }
 }
 

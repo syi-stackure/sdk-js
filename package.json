@@ -3,7 +3,6 @@
   "version": "0.0.0",
   "description": "Official Stackure authentication SDK for JavaScript and TypeScript",
   "type": "module",
-  "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -39,7 +38,7 @@
   },
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "repository": {
     "type": "git",
