@@ -27,17 +27,3 @@ export function validateUUID(value: string, fieldName = 'UUID'): void {
     throw new StackureError('validation', `invalid ${fieldName} format (must be a valid UUID)`);
   }
 }
-
-/**
- * Throw a "validation"-coded StackureError if `url` is not a parseable URL.
- */
-export function validateURL(url: string, fieldName = 'URL'): void {
-  if (!url || typeof url !== 'string') {
-    throw new StackureError('validation', `${fieldName} is required`);
-  }
-  try {
-    new URL(url);
-  } catch {
-    throw new StackureError('validation', `invalid ${fieldName} format`);
-  }
-}

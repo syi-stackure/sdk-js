@@ -7,7 +7,9 @@
 [![npm provenance](https://img.shields.io/badge/npm-provenance-blue)](https://docs.npmjs.com/generating-provenance-statements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-Authentication for your app. One line.
+Passwordless magic-link authentication SDK for JavaScript and TypeScript — drop-in Express/Connect middleware, zero dependencies.
+
+Protect a route with one line, or verify sessions and send magic links directly against the [Stackure](https://stackure.com) auth API.
 
 ## Install
 
@@ -15,41 +17,62 @@ Authentication for your app. One line.
 npm install stackure
 ```
 
-Requires Node.js 18+. ESM only.
+Requires Node.js 22+. ESM only.
 
 ## Protect a route
 
 ```js
-import { auth } from 'stackure';
+import { auth, userFromRequest } from 'stackure';
 
-app.get('/admin', auth({ appId: 'my-app-id', roles: ['admin'] }), (req, res) => {
-  res.json({ user: req.user });
+const appId = '7f3c1a2e-9b4d-4e6f-8a1b-2c3d4e5f6071'; // your app's UUID in Stackure
+
+app.get('/admin', auth(appId, 'view_any_app'), (req, res) => {
+  const user = userFromRequest(req);
+  res.json({ email: user.user_email, permissions: user.user_permissions });
 });
 ```
 
 - API requests get JSON errors
 - Browser requests get redirected to sign-in
+- The sign-in handoff is automatic: Stackure hands the browser back to your app with a `session_token`, the middleware stores it as a cookie on your domain and strips it from the URL
+
+The middleware writes with `res.setHeader` / `res.writeHead`, so it works on
+Express, Connect, and a bare `http.createServer`. On Fastify, pass `request.raw`
+and `reply.raw`.
+
+## Requirements
+
+Stackure binds sessions to the browser's user agent and IP. The SDK validates
+from your server, so it forwards the original `User-Agent` and
+`X-Forwarded-For`. Your app must see the real client IP — if it runs behind a
+proxy or CDN, make sure that layer sets `X-Forwarded-For`.
+
+Every request is validated against Stackure, so revocation is immediate.
 
 ## Verify manually
 
 ```js
 import { verify } from 'stackure';
 
-const result = await verify({ appId: 'my-app-id', request: req });
+const result = await verify(appId, req, 'view_any_app');
 
 if (!result.authenticated) {
+  // result.error.code, result.error.message, result.error.sign_in_url
   return res.status(result.error.code).json(result.error);
 }
 
-res.json({ user: result.user });
+// result.user
 ```
+
+`verify` never throws — transport and API failures come back as a 500 result.
 
 ## Send a magic link
 
 ```js
 import { sendMagicLink } from 'stackure';
 
-await sendMagicLink({ email: 'user@example.com', appId: 'my-app-id' });
+const resp = await sendMagicLink('user@example.com', appId);
+// resp.message
 ```
 
 ## Log out
@@ -57,8 +80,10 @@ await sendMagicLink({ email: 'user@example.com', appId: 'my-app-id' });
 ```js
 import { logout } from 'stackure';
 
-await logout(req.headers.cookie);
+app.get('/logout', (req, res) => logout(req, res));
 ```
+
+Clears the app's cookie and redirects to Stackure's sign-out.
 
 ## Configuration
 
@@ -68,18 +93,27 @@ Set `STACKURE_BASE_URL` to point at a non-production environment:
 STACKURE_BASE_URL=https://stage.stackure.com node app.js
 ```
 
+Retry-on-5xx (one retry after 500ms) and the 2-second request timeout are
+hard-coded. Timeouts are never retried.
+
 ## Errors
 
-All thrown errors are `StackureError`. Switch on `.code`:
+Everything except `verify` throws `StackureError`. Switch on `.code`:
 
 ```js
 import { StackureError } from 'stackure';
 
 try {
-  await sendMagicLink({ email });
+  await sendMagicLink(email);
 } catch (err) {
   if (err instanceof StackureError) {
-    // err.code is one of: "validation" | "auth" | "forbidden" | "timeout" | "network"
+    switch (err.code) {
+      case 'validation': // bad input
+      case 'auth':       // 401 from the API
+      case 'forbidden':  // 403 from the API
+      case 'timeout':    // request exceeded the 2s timeout
+      case 'network':    // everything else
+    }
   }
 }
 ```
