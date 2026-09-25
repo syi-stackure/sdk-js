@@ -16,6 +16,10 @@ export function validateEmail(email: string): void {
   }
 }
 
+export function isUUID(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 /**
  * Throw a "validation"-coded StackureError if `value` is not a valid UUID v4.
  */
@@ -23,7 +27,7 @@ export function validateUUID(value: string, fieldName = 'UUID'): void {
   if (!value || typeof value !== 'string') {
     throw new StackureError('validation', `${fieldName} is required`);
   }
-  if (!UUID_REGEX.test(value)) {
+  if (!isUUID(value)) {
     throw new StackureError('validation', `invalid ${fieldName} format (must be a valid UUID)`);
   }
 }

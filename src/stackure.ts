@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { StackureError } from './errors.js';
-import { validateEmail, validateUUID } from './validation.js';
+import { isUUID, validateEmail, validateUUID } from './validation.js';
 
 const DEFAULT_BASE_URL = 'https://stackure.com';
 const REQUEST_TIMEOUT_MS = 2000;
@@ -175,16 +175,23 @@ export async function sendMagicLink(email: string, appId?: string): Promise<Magi
 
 /**
  * Validate the request's session against Stackure. Throws `StackureError`.
+ * A request without a well-formed session token gets the sign-in URL
+ * without a Stackure call.
  *
  * Most callers want `verify()` or `auth()` instead.
  */
 export async function validateSession(appId: string, req: IncomingMessage): Promise<Session> {
   validateUUID(appId, 'App ID');
 
+  const token = sessionToken(req);
+  if (!isUUID(token)) {
+    return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${appId}` };
+  }
+
   return request<Session>('GET', '/api/public/auth/session/validate', {
     query: { app_id: appId },
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
-    token: sessionToken(req),
+    token,
   });
 }
