@@ -4,10 +4,10 @@ import {
   SESSION_COOKIE,
   TOKEN_PARAM,
   baseUrl,
-  cookie,
-  queryParam,
   reqUrl,
   validateSession,
+  validateToken,
+  origin,
 } from './stackure.js';
 import type { Session, User, VerifyResult } from './stackure.js';
 
@@ -79,24 +79,29 @@ export async function verify(
   return { authenticated: true, user };
 }
 
+const MAX_HANDOFF_BODY = 4096;
+const SESSION_MAX_AGE = 7 * 24 * 3600;
+
 async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  return Buffer.concat(chunks).toString();
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size <= MAX_HANDOFF_BODY) chunks.push(c as Buffer);
+  }
+  return size > MAX_HANDOFF_BODY ? '' : Buffer.concat(chunks).toString();
 }
 
 async function handoffToken(req: StackureRequest): Promise<string> {
-  const q = queryParam(req, TOKEN_PARAM);
-  if (q) return q;
   if (req.method !== 'POST') return '';
-  if (cookie(req, SESSION_COOKIE)) return '';
+  if ((req.headers['origin'] ?? '') !== origin()) return '';
   if (!String(req.headers['content-type'] ?? '').startsWith('application/x-www-form-urlencoded')) {
     return '';
   }
 
   const b = req.body;
   if (b && typeof b === 'object') return String((b as Record<string, unknown>)[TOKEN_PARAM] ?? '');
-  const raw = typeof b === 'string' ? b : await readBody(req);
+  const raw = typeof b === 'string' ? (b.length > MAX_HANDOFF_BODY ? '' : b) : await readBody(req);
   return new URLSearchParams(raw).get(TOKEN_PARAM) ?? '';
 }
 
@@ -116,21 +121,23 @@ function redirect(res: ServerResponse, status: number, url: string) {
   res.end();
 }
 
-async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<boolean> {
+async function adoptToken(appId: string, req: StackureRequest, res: ServerResponse): Promise<boolean> {
   const token = await handoffToken(req);
   if (!token) return false;
+  const session = await validateToken(appId, token, req).catch(() => undefined);
+  if (!session?.authenticated) return false;
 
-  setSessionCookie(res, token, isHttps(req));
+  setSessionCookie(res, token, isHttps(req), SESSION_MAX_AGE);
 
-  const clean = new URL(reqUrl(req), 'http://x');
-  clean.searchParams.delete(TOKEN_PARAM);
-  redirect(res, 303, clean.pathname + clean.search);
+  const u = reqUrl(req);
+  redirect(res, 303, /^\/(?![\/\\])/.test(u) ? u : '/');
   return true;
 }
 
 /**
  * Middleware that enforces authentication, and completes Stackure's sign-in
- * handoff by storing the returned `session_token` as a cookie on your domain.
+ * handoff by validating the POSTed `session_token` (an app-scoped session
+ * token valid only for this app) and storing it as a cookie on your domain.
  *
  * On success the user is attached to `req.user` (see `userFromRequest`).
  * Browser requests (Accept: text/html) redirect to sign-in on 401; API
@@ -145,7 +152,7 @@ async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<bo
  */
 export function auth(appId: string, ...permissions: string[]) {
   return async (req: StackureRequest, res: ServerResponse, next: Next): Promise<void> => {
-    if (await adoptToken(req, res)) return;
+    if (await adoptToken(appId, req, res)) return;
 
     const result = await verify(appId, req, ...permissions);
     const err = result.error;

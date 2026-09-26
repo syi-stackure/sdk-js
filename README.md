@@ -19,6 +19,16 @@ npm install stackure
 
 Requires Node.js 22+. ESM only.
 
+## Configure
+
+```bash
+export STACKURE_APP_SECRET=...   # from the app page in Stackure, shown once
+```
+
+Sent as `X-App-Secret` on every call. The first call that actually reaches Stackure throws `StackureError` with code `validation` if it is missing. `STACKURE_BASE_URL` optionally overrides the API host.
+
+A newly registered app is not usable by anyone, even its creator, until it is shared with the organization or assigned to a team in Stackure. Do that before testing sign-in.
+
 ## Protect a route
 
 ```js
@@ -34,7 +44,7 @@ app.get('/admin', auth(appId, 'can_approve_invoice'), (req, res) => {
 
 - API requests get JSON errors
 - Browser requests get redirected to sign-in
-- The sign-in handoff is automatic: Stackure hands the browser back to your app with a `session_token`, the middleware stores it as a cookie on your domain and strips it from the URL
+- The sign-in handoff is automatic: Stackure POSTs a `session_token` (an app-scoped session token valid only for this app) back to your app, the middleware validates it and stores it as a cookie on your domain. Handoff bodies over 4 KB are ignored
 
 The middleware writes with `res.setHeader` / `res.writeHead`, so it works on
 Express, Connect, and a bare `http.createServer`. On Fastify, pass `request.raw`
@@ -42,14 +52,17 @@ and `reply.raw`.
 
 ## Requirements
 
-Stackure binds sessions to the browser's user agent and IP. The SDK validates
-from your server, so it forwards the original `User-Agent` and
-`X-Forwarded-For`. Your app must see the real client IP — if it runs behind a
-proxy or CDN, make sure that layer sets `X-Forwarded-For`.
+Sessions are not bound to the browser's user agent or IP. The SDK still
+forwards the original `User-Agent` and `X-Forwarded-For` when validating from
+your server, but they are informational only.
 
 Every request with a session token is validated against Stackure, so revocation
 is immediate. Requests without a well-formed token get the sign-in URL without a
 Stackure call.
+
+Each call has a 2-second deadline covering connect, headers, body and the
+single retry. Calls retry once after 500ms on a 5xx or a connection failure,
+never on a timeout.
 
 ## Verify manually
 
@@ -87,17 +100,6 @@ app.get('/logout', (req, res) => logout(req, res));
 
 Clears the app's cookie and redirects to Stackure's sign-out.
 
-## Configuration
-
-Set `STACKURE_BASE_URL` to point at a non-production environment:
-
-```bash
-STACKURE_BASE_URL=https://stage.stackure.com node app.js
-```
-
-Retry-on-5xx (one retry after 500ms) and the 2-second request timeout are
-hard-coded. Timeouts are never retried.
-
 ## Errors
 
 Everything except `verify` throws `StackureError`. Switch on `.code`:
@@ -110,7 +112,7 @@ try {
 } catch (err) {
   if (err instanceof StackureError) {
     switch (err.code) {
-      case 'validation': // bad input
+      case 'validation': // bad input or STACKURE_APP_SECRET not set
       case 'auth':       // 401 from the API
       case 'forbidden':  // 403 from the API
       case 'timeout':    // request exceeded the 2s timeout
@@ -122,7 +124,7 @@ try {
 
 ## Contributing
 
-Open a PR. Tag a release when ready: `git tag vX.Y.Z && git push --tags` — the release workflow builds, signs, and publishes.
+Open a PR.
 
 ## Security
 

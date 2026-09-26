@@ -10,9 +10,19 @@ const RETRY_DELAY_MS = 500;
 export const SESSION_COOKIE = 'session';
 export const TOKEN_PARAM = 'session_token';
 
+export function origin(): string {
+  return new URL(baseUrl()).origin;
+}
+
 export function baseUrl(): string {
   const v = process.env['STACKURE_BASE_URL'];
   return v ? v.replace(/\/+$/, '') : DEFAULT_BASE_URL;
+}
+
+export function appSecret(): string {
+  const v = process.env['STACKURE_APP_SECRET'];
+  if (!v) throw new StackureError('validation', 'STACKURE_APP_SECRET is not set');
+  return v;
 }
 
 /** An authenticated Stackure user. */
@@ -62,12 +72,18 @@ interface CallOpts {
 
 async function request<T>(method: string, path: string, o: CallOpts = {}): Promise<T> {
   const url = baseUrl() + path + (o.query ? '?' + new URLSearchParams(o.query) : '');
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { 'X-App-Secret': appSecret() };
   if (o.body !== undefined) headers['Content-Type'] = 'application/json';
   if (o.ua) headers['User-Agent'] = o.ua;
   if (o.ip) headers['X-Forwarded-For'] = o.ip;
   if (o.token) headers['Cookie'] = `${SESSION_COOKIE}=${o.token}`;
   const body = o.body === undefined ? undefined : JSON.stringify(o.body);
+
+  const start = Date.now();
+  const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeout = () => new StackureError('timeout', `request timed out after ${REQUEST_TIMEOUT_MS}ms`);
+  const canRetry = (attempt: number) =>
+    attempt < MAX_RETRIES && Date.now() - start + RETRY_DELAY_MS < REQUEST_TIMEOUT_MS;
 
   let last: StackureError | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -75,41 +91,37 @@ async function request<T>(method: string, path: string, o: CallOpts = {}): Promi
 
     let res: Response;
     try {
-      res = await fetch(url, {
-        method,
-        headers,
-        ...(body !== undefined && { body }),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+      res = await fetch(url, { method, headers, ...(body !== undefined && { body }), signal });
     } catch (e) {
-      if ((e as { name?: string }).name === 'TimeoutError') {
-        throw new StackureError('timeout', `request timed out after ${REQUEST_TIMEOUT_MS}ms`);
-      }
+      if (signal.aborted) throw timeout();
       last = new StackureError(
         'network',
         `network request failed: ${e instanceof Error ? e.message : String(e)}`,
       );
-      continue;
+      if (canRetry(attempt)) continue;
+      throw last;
     }
 
-    if (res.status >= 500 && attempt < MAX_RETRIES) {
+    if (res.status >= 500 && canRetry(attempt)) {
       last = new StackureError('network', `server error (${res.status})`, res.status);
       continue;
     }
-    return handleResponse<T>(res);
+    let text: string;
+    try {
+      text = await res.text();
+    } catch {
+      if (signal.aborted) throw timeout();
+      last = new StackureError('network', 'failed to read response body', res.status);
+      if (canRetry(attempt)) continue;
+      throw last;
+    }
+    return handleResponse<T>(res, text);
   }
 
   throw last ?? new StackureError('network', 'request failed after retries');
 }
 
-async function handleResponse<T>(res: Response): Promise<T> {
-  let text: string;
-  try {
-    text = await res.text();
-  } catch {
-    throw new StackureError('network', 'failed to read response body', res.status);
-  }
-
+function handleResponse<T>(res: Response, text: string): T {
   if (!res.ok) {
     const t = text || 'unknown error';
     if (res.status === 401) throw new StackureError('auth', t, 401);
@@ -128,16 +140,13 @@ export function reqUrl(req: IncomingMessage): string {
   return (req as IncomingMessage & { originalUrl?: string }).originalUrl ?? req.url ?? '/';
 }
 
-export function queryParam(req: IncomingMessage, name: string): string {
-  const url = reqUrl(req);
-  const i = url.indexOf('?');
-  return i < 0 ? '' : (new URLSearchParams(url.slice(i + 1)).get(name) ?? '');
-}
-
 export function cookie(req: IncomingMessage, name: string): string {
   for (const part of (req.headers.cookie ?? '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+    if (i > 0 && part.slice(0, i).trim() === name) {
+      const v = part.slice(i + 1).trim();
+      return v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v;
+    }
   }
   return '';
 }
@@ -150,7 +159,7 @@ export function clientIp(req: IncomingMessage): string {
 }
 
 export function sessionToken(req: IncomingMessage): string {
-  return queryParam(req, TOKEN_PARAM) || cookie(req, SESSION_COOKIE);
+  return cookie(req, SESSION_COOKIE);
 }
 
 /**
@@ -181,9 +190,12 @@ export async function sendMagicLink(email: string, appId?: string): Promise<Magi
  * Most callers want `verify()` or `auth()` instead.
  */
 export async function validateSession(appId: string, req: IncomingMessage): Promise<Session> {
+  return validateToken(appId, sessionToken(req), req);
+}
+
+export async function validateToken(appId: string, token: string, req: IncomingMessage): Promise<Session> {
   validateUUID(appId, 'App ID');
 
-  const token = sessionToken(req);
   if (!isUUID(token)) {
     return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${appId}` };
   }
