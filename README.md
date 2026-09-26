@@ -38,7 +38,7 @@ const appId = '7f3c1a2e-9b4d-4e6f-8a1b-2c3d4e5f6071'; // your app's UUID in Stac
 
 app.get('/admin', auth(appId, 'can_approve_invoice'), (req, res) => {
   const user = userFromRequest(req);
-  res.json({ email: user.user_email, permissions: user.user_permissions });
+  res.json({ email: user.user_email, account: user.account_id, permissions: user.user_permissions });
 });
 ```
 
