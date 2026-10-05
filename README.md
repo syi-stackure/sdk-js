@@ -22,10 +22,11 @@ Requires Node.js 22+. ESM only.
 ## Configure
 
 ```bash
+export STACKURE_APP_ID=...       # the app's UUID, shown on the app page in Stackure
 export STACKURE_APP_SECRET=...   # from the app page in Stackure, shown once
 ```
 
-Sent as `X-App-Secret` on every call except sign-out. The first call that actually reaches Stackure throws `StackureError` with code `validation` if it is missing. `STACKURE_BASE_URL` optionally overrides the API host.
+Both are read at call time, never cached. If `STACKURE_APP_ID` is missing or not a UUID, `sendMagicLink` and `validateSession` throw `StackureError` with code `validation`, `verify` returns a 500 result, `auth` responds 500 and `mcp` 503; sign-out never needs it. The secret is sent as `X-App-Secret` on every call except sign-out; the first call that actually reaches Stackure throws the same error if it is missing. `STACKURE_BASE_URL` optionally overrides the API host.
 
 A newly registered app is not usable by anyone, even its creator, until it is shared with the organization or assigned to a team in Stackure. Do that before testing sign-in.
 
@@ -34,9 +35,7 @@ A newly registered app is not usable by anyone, even its creator, until it is sh
 ```js
 import { auth, userFromRequest } from 'stackure';
 
-const appId = '7f3c1a2e-9b4d-4e6f-8a1b-2c3d4e5f6071'; // your app's UUID in Stackure
-
-app.get('/admin', auth(appId, 'can_approve_invoice'), (req, res) => {
+app.get('/admin', auth('can_approve_invoice'), (req, res) => {
   const user = userFromRequest(req);
   res.json({ email: user.user_email, account: user.account_id, permissions: user.user_permissions });
 });
@@ -55,7 +54,7 @@ and `reply.raw`.
 ```js
 import { mcp, userFromRequest } from 'stackure';
 
-app.all('/mcp', mcp(appId), (req, res) => {
+app.all('/mcp', mcp(), (req, res) => {
   const user = userFromRequest(req);
   // serve the MCP request
 });
@@ -86,7 +85,7 @@ never on a timeout.
 ```js
 import { verify } from 'stackure';
 
-const result = await verify(appId, req, 'can_approve_invoice');
+const result = await verify(req, 'can_approve_invoice');
 
 if (!result.authenticated) {
   // result.error.code, result.error.message, result.error.sign_in_url
@@ -103,7 +102,7 @@ if (!result.authenticated) {
 ```js
 import { sendMagicLink } from 'stackure';
 
-const resp = await sendMagicLink('user@example.com', appId);
+const resp = await sendMagicLink('user@example.com');
 // resp.message
 ```
 
@@ -135,7 +134,7 @@ try {
 } catch (err) {
   if (err instanceof StackureError) {
     switch (err.code) {
-      case 'validation': // bad input or STACKURE_APP_SECRET not set
+      case 'validation': // bad input, or STACKURE_APP_ID or STACKURE_APP_SECRET not set
       case 'auth':       // 401 from the API
       case 'forbidden':  // 403 from the API
       case 'timeout':    // request exceeded the 2s timeout

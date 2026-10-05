@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { StackureError } from './errors.js';
-import { isUUID, validateEmail, validateUUID } from './validation.js';
+import { isUUID, validateEmail } from './validation.js';
 
 const DEFAULT_BASE_URL = 'https://stackure.com';
 const REQUEST_TIMEOUT_MS = 2000;
@@ -22,6 +22,13 @@ export function baseUrl(): string {
 export function appSecret(): string {
   const v = process.env['STACKURE_APP_SECRET'];
   if (!v) throw new StackureError('validation', 'STACKURE_APP_SECRET is not set');
+  return v;
+}
+
+export function appId(): string {
+  const v = process.env['STACKURE_APP_ID'];
+  if (!v) throw new StackureError('validation', 'STACKURE_APP_ID is not set');
+  if (!isUUID(v)) throw new StackureError('validation', 'invalid STACKURE_APP_ID format (must be a valid UUID)');
   return v;
 }
 
@@ -189,19 +196,14 @@ export function bearerToken(req: IncomingMessage): string {
  *
  * @example
  * ```typescript
- * const { message } = await sendMagicLink('user@example.com', appId);
+ * const { message } = await sendMagicLink('user@example.com');
  * ```
  */
-export async function sendMagicLink(email: string, appId?: string): Promise<MagicLinkResponse> {
+export async function sendMagicLink(email: string): Promise<MagicLinkResponse> {
   validateEmail(email);
-
-  const body: Record<string, string> = { user_email: email };
-  if (appId) {
-    validateUUID(appId, 'App ID');
-    body['app_id'] = appId;
-  }
-
-  return request<MagicLinkResponse>('POST', '/api/public/auth/magic-link/send', { body });
+  return request<MagicLinkResponse>('POST', '/api/public/auth/magic-link/send', {
+    body: { user_email: email, app_id: appId() },
+  });
 }
 
 /**
@@ -211,19 +213,19 @@ export async function sendMagicLink(email: string, appId?: string): Promise<Magi
  *
  * Most callers want `verify()` or `auth()` instead.
  */
-export async function validateSession(appId: string, req: IncomingMessage): Promise<Session> {
-  return validateToken(appId, sessionToken(req), req);
+export async function validateSession(req: IncomingMessage): Promise<Session> {
+  return validateToken(sessionToken(req), req);
 }
 
-export async function validateToken(appId: string, token: string, req: IncomingMessage): Promise<Session> {
-  validateUUID(appId, 'App ID');
+export async function validateToken(token: string, req: IncomingMessage): Promise<Session> {
+  const id = appId();
 
   if (!isUUID(token)) {
-    return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${appId}` };
+    return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${id}` };
   }
 
   return request<Session>('GET', '/api/public/auth/session/validate', {
-    query: { app_id: appId },
+    query: { app_id: id },
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
     token,
@@ -234,16 +236,9 @@ export interface McpSession extends Session {
   www_authenticate?: string;
 }
 
-export async function validateMcp(
-  appId: string,
-  token: string,
-  mcp: string,
-  req: IncomingMessage,
-): Promise<McpSession> {
-  validateUUID(appId, 'App ID');
-
+export async function validateMcp(token: string, mcp: string, req: IncomingMessage): Promise<McpSession> {
   return request<McpSession>('GET', '/api/public/auth/session/validate', {
-    query: { app_id: appId, mcp },
+    query: { app_id: appId(), mcp },
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
     credential: isUUID(token) ? token : '',
