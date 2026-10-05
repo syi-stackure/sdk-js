@@ -1,12 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { TLSSocket } from 'node:tls';
+import { StackureError } from './errors.js';
 import {
   SESSION_COOKIE,
   TOKEN_PARAM,
   baseUrl,
+  bearerToken,
   reqUrl,
   sessionToken,
   signOut,
+  validateMcp,
   validateSession,
   validateToken,
   origin,
@@ -23,7 +26,7 @@ export interface StackureRequest extends IncomingMessage {
 
 type Next = (err?: unknown) => void;
 
-/** The user attached by `auth()`, or undefined if the request was not authenticated. */
+/** The user attached by `auth()` or `mcp()`, or undefined if the request was not authenticated. */
 export function userFromRequest(req: StackureRequest): User | undefined {
   return req.user;
 }
@@ -200,6 +203,59 @@ export function auth(appId: string, ...permissions: string[]) {
     }
 
     req.user = result.user;
+    next();
+  };
+}
+
+function deny(res: ServerResponse, status: number, error: string) {
+  res.setHeader('Content-Type', 'application/json');
+  res.writeHead(status);
+  res.end(JSON.stringify({ error }));
+}
+
+/**
+ * Middleware that protects an MCP endpoint. AI clients (Claude, Claude Code,
+ * VS Code, Cursor) sign users in through Stackure and send the credential as
+ * `Authorization: Bearer`. Every MCP request is checked against Stackure in
+ * real time with the same app secret; cookies are ignored.
+ *
+ * On success the user is attached to `req.user` (see `userFromRequest`).
+ * A request that is not signed in gets a 401 whose `WWW-Authenticate` header
+ * tells the AI client where to sign in, a missing permission gets a 403 and
+ * a failed check gets a 503, all as JSON.
+ *
+ * The MCP endpoint must be served from the same site as the app's registered
+ * URL unless an MCP URL is set for the app in Stackure.
+ *
+ * @example
+ * ```typescript
+ * app.all('/mcp', mcp(appId), (req, res) => {
+ *   const user = userFromRequest(req);
+ * });
+ * ```
+ */
+export function mcp(appId: string, ...permissions: string[]) {
+  return async (req: StackureRequest, res: ServerResponse, next: Next): Promise<void> => {
+    const path = reqUrl(req).split(/[?#]/)[0];
+    const url = `${isHttps(req) ? 'https' : 'http'}://${req.headers.host ?? ''}${path}`;
+    const session = await validateMcp(appId, bearerToken(req), url, req).catch((e: unknown) => {
+      const why = e instanceof StackureError ? `${e.code} ${e.statusCode ?? ''}`.trim() : 'unknown';
+      console.error('stackure: mcp verification error:', why);
+    });
+    if (!session) return deny(res, 503, 'unavailable');
+
+    const user = session.user;
+    if (!session.authenticated || !user) {
+      res.setHeader('WWW-Authenticate', session.www_authenticate || 'Bearer');
+      return deny(res, 401, 'unauthorized');
+    }
+
+    const have = user.user_permissions ?? [];
+    if (permissions.length > 0 && !permissions.some((p) => have.includes(p))) {
+      return deny(res, 403, 'forbidden');
+    }
+
+    req.user = user;
     next();
   };
 }

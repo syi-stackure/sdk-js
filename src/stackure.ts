@@ -68,6 +68,7 @@ interface CallOpts {
   query?: Record<string, string>;
   token?: string;
   bearer?: string;
+  credential?: string;
   ignoreBody?: boolean;
   redirect?: 'manual';
   ua?: string;
@@ -79,6 +80,7 @@ async function request<T>(method: string, path: string, o: CallOpts = {}): Promi
   const headers: Record<string, string> = o.bearer
     ? { Authorization: `Bearer ${o.bearer}` }
     : { 'X-App-Secret': appSecret() };
+  if (o.credential) headers['Authorization'] = `Bearer ${o.credential}`;
   if (o.body !== undefined) headers['Content-Type'] = 'application/json';
   if (o.ua) headers['User-Agent'] = o.ua;
   if (o.ip) headers['X-Forwarded-For'] = o.ip;
@@ -178,6 +180,10 @@ export function sessionToken(req: IncomingMessage): string {
   return cookie(req, SESSION_COOKIE);
 }
 
+export function bearerToken(req: IncomingMessage): string {
+  return /^Bearer +(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '';
+}
+
 /**
  * Send a passwordless sign-in email.
  *
@@ -221,6 +227,26 @@ export async function validateToken(appId: string, token: string, req: IncomingM
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
     token,
+  });
+}
+
+export interface McpSession extends Session {
+  www_authenticate?: string;
+}
+
+export async function validateMcp(
+  appId: string,
+  token: string,
+  mcp: string,
+  req: IncomingMessage,
+): Promise<McpSession> {
+  validateUUID(appId, 'App ID');
+
+  return request<McpSession>('GET', '/api/public/auth/session/validate', {
+    query: { app_id: appId, mcp },
+    ua: req.headers['user-agent'] ?? '',
+    ip: clientIp(req),
+    credential: isUUID(token) ? token : '',
   });
 }
 
