@@ -67,13 +67,18 @@ interface CallOpts {
   body?: unknown;
   query?: Record<string, string>;
   token?: string;
+  bearer?: string;
+  ignoreBody?: boolean;
+  redirect?: 'manual';
   ua?: string;
   ip?: string;
 }
 
 async function request<T>(method: string, path: string, o: CallOpts = {}): Promise<T> {
   const url = baseUrl() + path + (o.query ? '?' + new URLSearchParams(o.query) : '');
-  const headers: Record<string, string> = { 'X-App-Secret': appSecret() };
+  const headers: Record<string, string> = o.bearer
+    ? { Authorization: `Bearer ${o.bearer}` }
+    : { 'X-App-Secret': appSecret() };
   if (o.body !== undefined) headers['Content-Type'] = 'application/json';
   if (o.ua) headers['User-Agent'] = o.ua;
   if (o.ip) headers['X-Forwarded-For'] = o.ip;
@@ -92,7 +97,13 @@ async function request<T>(method: string, path: string, o: CallOpts = {}): Promi
 
     let res: Response;
     try {
-      res = await fetch(url, { method, headers, ...(body !== undefined && { body }), signal });
+      res = await fetch(url, {
+        method,
+        headers,
+        ...(body !== undefined && { body }),
+        redirect: o.redirect ?? 'follow',
+        signal,
+      });
     } catch (e) {
       if (signal.aborted) throw timeout();
       last = new StackureError(
@@ -106,6 +117,10 @@ async function request<T>(method: string, path: string, o: CallOpts = {}): Promi
     if (res.status >= 500 && canRetry(attempt)) {
       last = new StackureError('network', `server error (${res.status})`, res.status);
       continue;
+    }
+    if (o.ignoreBody) {
+      res.body?.cancel().catch(() => {});
+      return (res.ok ? undefined : handleResponse(res, '')) as T;
     }
     let text: string;
     try {
@@ -206,5 +221,15 @@ export async function validateToken(appId: string, token: string, req: IncomingM
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
     token,
+  });
+}
+
+export async function signOut(token: string, req: IncomingMessage): Promise<void> {
+  return request<void>('POST', '/api/public/auth/sign-out', {
+    bearer: token,
+    ignoreBody: true,
+    redirect: 'manual',
+    ua: req.headers['user-agent'] ?? '',
+    ip: clientIp(req),
   });
 }

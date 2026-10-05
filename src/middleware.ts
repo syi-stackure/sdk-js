@@ -5,11 +5,14 @@ import {
   TOKEN_PARAM,
   baseUrl,
   reqUrl,
+  sessionToken,
+  signOut,
   validateSession,
   validateToken,
   origin,
 } from './stackure.js';
 import type { Session, User, VerifyResult } from './stackure.js';
+import { isUUID } from './validation.js';
 
 /** Request shape the middleware reads from and attaches the user to. */
 export interface StackureRequest extends IncomingMessage {
@@ -77,6 +80,20 @@ export async function verify(
   }
 
   return { authenticated: true, user };
+}
+
+function headerLines(req: IncomingMessage, name: string): number {
+  return req.rawHeaders.filter((h, i) => i % 2 === 0 && h.toLowerCase() === name).length;
+}
+
+function sameOriginPost(req: IncomingMessage): boolean {
+  if (req.method !== 'POST') return false;
+  if (['sec-fetch-site', 'origin', 'host'].some((h) => headerLines(req, h) > 1)) return false;
+  const site = req.headers['sec-fetch-site'];
+  if (site !== undefined) return site === 'same-origin';
+  const m = /^([a-z][a-z\d+.-]*):\/\/([^/]+)$/i.exec(req.headers.origin ?? '');
+  if (!m || (isHttps(req) && m[1]!.toLowerCase() !== 'https')) return false;
+  return m[2]!.toLowerCase() === (req.headers.host ?? '').toLowerCase();
 }
 
 const MAX_HANDOFF_BODY = 4096;
@@ -188,15 +205,34 @@ export function auth(appId: string, ...permissions: string[]) {
 }
 
 /**
- * Clear the app's session cookie and redirect to Stackure's sign-out, which
- * revokes the session.
+ * Sign the user out everywhere. Returns a promise (`Promise<void>`) that
+ * resolves once the response is handled.
+ *
+ * Mount it for every method on the logout path. Trigger it with a form or
+ * button that POSTs from the app's own page; a link or any other request is
+ * sent to Stackure's sign-out page, where the user confirms.
+ *
+ * A same-origin POST signs the user out through Stackure's API, clears the
+ * app's session cookie and redirects to Stackure. If the API call fails, the
+ * redirect goes to Stackure's sign-out page, where the user can finish
+ * signing out.
  *
  * @example
  * ```typescript
- * app.get('/logout', (req, res) => logout(req, res));
+ * app.all('/logout', (req, res) => logout(req, res));
  * ```
  */
-export function logout(req: IncomingMessage, res: ServerResponse): void {
+export async function logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (res.headersSent) return;
+  if (!sameOriginPost(req)) {
+    redirect(res, 303, baseUrl() + '/signout');
+    return;
+  }
+
+  const token = sessionToken(req);
+  const ok = !isUUID(token) || (await signOut(token, req).then(() => true, () => false));
+  if (res.headersSent) return;
+
   setSessionCookie(res, '', isHttps(req), 0);
-  redirect(res, 303, baseUrl() + '/signout');
+  redirect(res, 303, baseUrl() + (ok ? '/' : '/signout'));
 }

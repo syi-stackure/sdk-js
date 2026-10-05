@@ -25,7 +25,7 @@ Requires Node.js 22+. ESM only.
 export STACKURE_APP_SECRET=...   # from the app page in Stackure, shown once
 ```
 
-Sent as `X-App-Secret` on every call. The first call that actually reaches Stackure throws `StackureError` with code `validation` if it is missing. `STACKURE_BASE_URL` optionally overrides the API host.
+Sent as `X-App-Secret` on every call except sign-out. The first call that actually reaches Stackure throws `StackureError` with code `validation` if it is missing. `STACKURE_BASE_URL` optionally overrides the API host.
 
 A newly registered app is not usable by anyone, even its creator, until it is shared with the organization or assigned to a team in Stackure. Do that before testing sign-in.
 
@@ -95,14 +95,20 @@ const resp = await sendMagicLink('user@example.com', appId);
 ```js
 import { logout } from 'stackure';
 
-app.get('/logout', (req, res) => logout(req, res));
+app.all('/logout', (req, res) => logout(req, res));
 ```
 
-Clears the app's cookie and redirects to Stackure's sign-out.
+```html
+<form method="post" action="/logout"><button>Sign out</button></form>
+```
+
+Mount it for every method on the logout path, as above. Trigger it with a form or button that POSTs from the app's own page; a link or any other request is sent to Stackure's sign-out page, where the user confirms.
+
+`logout` returns a promise (`Promise<void>`). A same-origin POST signs the user out everywhere through Stackure's API, clears the app's cookie and redirects to Stackure. If the API call fails, the redirect goes to Stackure's sign-out page, where the user can finish signing out.
 
 ## Errors
 
-Everything except `verify` throws `StackureError`. Switch on `.code`:
+Everything except `verify` and `logout` throws `StackureError`. Switch on `.code`:
 
 ```js
 import { StackureError } from 'stackure';
