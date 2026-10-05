@@ -3,6 +3,7 @@ import { createServer, request } from 'node:http';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { logout } from '../dist/index.js';
 
+const APP = '7f3c1a2e-9b4d-4e6f-8a1b-2c3d4e5f6071';
 const TOKEN = '3b241101-e2bb-4255-8caf-4136c566a962';
 const SECRET = 'test-app-secret-0f6d2c';
 const CLEARED = 'session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0';
@@ -50,6 +51,7 @@ beforeEach(async () => {
     }
   });
   process.env.STACKURE_BASE_URL = urlOf(api);
+  process.env.STACKURE_APP_ID = APP;
   process.env.STACKURE_APP_SECRET = SECRET;
 });
 
@@ -137,7 +139,8 @@ test('same-origin POST with a non-matching Origin: Sec-Fetch-Site decides alone,
   acted(await run('POST', { ...SAME, Origin: 'https://evil.example' }));
 });
 
-test('same-origin POST with no app secret configured: signs out, clears the cookie, redirects to base /', async () => {
+test('same-origin POST with no app id or secret configured: signs out, clears the cookie, redirects to base /', async () => {
+  delete process.env.STACKURE_APP_ID;
   delete process.env.STACKURE_APP_SECRET;
   const out = await run('POST', SAME);
   assert.deepEqual(

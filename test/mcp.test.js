@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, request } from 'node:http';
 import { afterEach, beforeEach, mock, test } from 'node:test';
-import { mcp, userFromRequest } from '../dist/index.js';
+import { mcp, userFromRequest, validateSession, verify } from '../dist/index.js';
 
 const APP = '7f3c1a2e-9b4d-4e6f-8a1b-2c3d4e5f6071';
 const TOKEN = '3b241101-e2bb-4255-8caf-4136c566a962';
@@ -48,7 +48,7 @@ beforeEach(async () => {
     req.headers.authorization === `Bearer ${TOKEN}`
       ? json(200, { authenticated: true, user: USER })(res)
       : json(200, { authenticated: false, sign_in_url: SIGN_IN, www_authenticate: CHALLENGE })(res);
-  guard = mcp(APP);
+  guard = mcp();
   mount = () => {};
   for (const m of ['log', 'info', 'warn', 'error', 'debug']) mock.method(console, m, (...a) => logged.push(a.join(' ')));
   api = await listen((req, res) => {
@@ -72,6 +72,7 @@ beforeEach(async () => {
     }
   });
   process.env.STACKURE_BASE_URL = urlOf(api);
+  process.env.STACKURE_APP_ID = APP;
   process.env.STACKURE_APP_SECRET = SECRET;
 });
 
@@ -203,7 +204,7 @@ for (const [name, perms, user] of [
 ]) {
   test(`authenticated ${name}: 403, user not attached`, async () => {
     reply = json(200, { authenticated: true, user });
-    guard = mcp(APP, ...perms);
+    guard = mcp(...perms);
     const out = await run('/mcp', BEARER);
     once(here(), true);
     denied(out, 403, FORBIDDEN, undefined);
@@ -216,7 +217,7 @@ for (const [name, perms] of [
   ['one of the required permissions', ['can_approve_invoice', 'can_read']],
 ]) {
   test(`authenticated with ${name}: attaches the user`, async () => {
-    guard = mcp(APP, ...perms);
+    guard = mcp(...perms);
     const out = await run('/mcp', BEARER);
     once(here(), true);
     attached(out);
@@ -224,7 +225,7 @@ for (const [name, perms] of [
 }
 
 test('not authenticated on a route with a required permission: 401, not 403', async () => {
-  guard = mcp(APP, 'can_read');
+  guard = mcp('can_read');
   const out = await run('/mcp');
   once(here(), false);
   denied(out, 401, UNAUTHORIZED, CHALLENGE);
@@ -240,7 +241,8 @@ for (const [name, fail, sent, why] of [
   ['timeout', () => (reply = () => {}), 1, 'timeout'],
   ['network error', () => close(api), 0, 'network'],
   ['no app secret configured', () => delete process.env.STACKURE_APP_SECRET, 0, 'validation'],
-  ['app id that is not a UUID', () => (guard = mcp('not-an-app-id')), 0, 'validation'],
+  ['no app id configured', () => delete process.env.STACKURE_APP_ID, 0, 'validation'],
+  ['app id that is not a UUID', () => (process.env.STACKURE_APP_ID = 'not-an-app-id'), 0, 'validation'],
 ]) {
   test(`validate failure (${name}): 503, user not attached`, async () => {
     const url = here();
@@ -252,6 +254,18 @@ for (const [name, fail, sent, why] of [
     assert.deepEqual(logged, [`stackure: mcp verification error: ${why}`]);
   });
 }
+
+test('verify and validateSession with no app id configured: 500 result and validation error, no request', async () => {
+  delete process.env.STACKURE_APP_ID;
+  const req = { headers: { cookie: `session=${TOKEN}` } };
+  assert.deepEqual(await verify(req, 'can_read'), {
+    authenticated: false,
+    error: { code: 500, message: 'Authentication verification failed' },
+  });
+  await assert.rejects(validateSession(req), { code: 'validation', message: 'STACKURE_APP_ID is not set' });
+  assert.equal(calls.length, 0);
+  assert.deepEqual(logged, ['stackure: verification error: STACKURE_APP_ID is not set']);
+});
 
 test('validate failure without a bearer: 503, not 401', async () => {
   reply = json(500, { error: 'internal', www_authenticate: CHALLENGE });

@@ -10,7 +10,7 @@
  * } catch (err) {
  *   if (err instanceof StackureError) {
  *     switch (err.code) {
- *       case 'validation': // bad input or STACKURE_APP_SECRET not set
+ *       case 'validation': // bad input, or STACKURE_APP_ID or STACKURE_APP_SECRET not set
  *       case 'auth':       // 401 from the API
  *       case 'forbidden':  // 403 from the API
  *       case 'timeout':    // request exceeded the 2s timeout

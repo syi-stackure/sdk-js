@@ -44,18 +44,14 @@ function isHttps(req: IncomingMessage): boolean {
  *
  * @example
  * ```typescript
- * const result = await verify(appId, req, 'can_approve_invoice');
+ * const result = await verify(req, 'can_approve_invoice');
  * if (!result.authenticated) return res.status(result.error!.code).json(result.error);
  * ```
  */
-export async function verify(
-  appId: string,
-  req: IncomingMessage,
-  ...permissions: string[]
-): Promise<VerifyResult> {
+export async function verify(req: IncomingMessage, ...permissions: string[]): Promise<VerifyResult> {
   let session: Session;
   try {
-    session = await validateSession(appId, req);
+    session = await validateSession(req);
   } catch (e) {
     console.error('stackure: verification error:', e instanceof Error ? e.message : String(e));
     return { authenticated: false, error: { code: 500, message: 'Authentication verification failed' } };
@@ -141,10 +137,10 @@ function redirect(res: ServerResponse, status: number, url: string) {
   res.end();
 }
 
-async function adoptToken(appId: string, req: StackureRequest, res: ServerResponse): Promise<boolean> {
+async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<boolean> {
   const token = await handoffToken(req);
   if (!token) return false;
-  const session = await validateToken(appId, token, req).catch(() => undefined);
+  const session = await validateToken(token, req).catch(() => undefined);
   if (!session?.authenticated) return false;
 
   setSessionCookie(res, token, isHttps(req), SESSION_MAX_AGE);
@@ -165,16 +161,16 @@ async function adoptToken(appId: string, req: StackureRequest, res: ServerRespon
  *
  * @example
  * ```typescript
- * app.get('/admin', auth(appId, 'can_approve_invoice'), (req, res) => {
+ * app.get('/admin', auth('can_approve_invoice'), (req, res) => {
  *   res.json({ user: userFromRequest(req) });
  * });
  * ```
  */
-export function auth(appId: string, ...permissions: string[]) {
+export function auth(...permissions: string[]) {
   return async (req: StackureRequest, res: ServerResponse, next: Next): Promise<void> => {
-    if (await adoptToken(appId, req, res)) return;
+    if (await adoptToken(req, res)) return;
 
-    const result = await verify(appId, req, ...permissions);
+    const result = await verify(req, ...permissions);
     const err = result.error;
 
     if (!result.authenticated && err) {
@@ -229,16 +225,16 @@ function deny(res: ServerResponse, status: number, error: string) {
  *
  * @example
  * ```typescript
- * app.all('/mcp', mcp(appId), (req, res) => {
+ * app.all('/mcp', mcp(), (req, res) => {
  *   const user = userFromRequest(req);
  * });
  * ```
  */
-export function mcp(appId: string, ...permissions: string[]) {
+export function mcp(...permissions: string[]) {
   return async (req: StackureRequest, res: ServerResponse, next: Next): Promise<void> => {
     const path = reqUrl(req).split(/[?#]/)[0];
     const url = `${isHttps(req) ? 'https' : 'http'}://${req.headers.host ?? ''}${path}`;
-    const session = await validateMcp(appId, bearerToken(req), url, req).catch((e: unknown) => {
+    const session = await validateMcp(bearerToken(req), url, req).catch((e: unknown) => {
       const why = e instanceof StackureError ? `${e.code} ${e.statusCode ?? ''}`.trim() : 'unknown';
       console.error('stackure: mcp verification error:', why);
     });
