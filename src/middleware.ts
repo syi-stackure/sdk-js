@@ -44,11 +44,11 @@ function isHttps(req: IncomingMessage): boolean {
  *
  * @example
  * ```typescript
- * const result = await verify(req, 'can_approve_invoice');
+ * const result = await verify(req);
  * if (!result.authenticated) return res.status(result.error!.code).json(result.error);
  * ```
  */
-export async function verify(req: IncomingMessage, ...permissions: string[]): Promise<VerifyResult> {
+export async function verify(req: IncomingMessage): Promise<VerifyResult> {
   let session: Session;
   try {
     session = await validateSession(req);
@@ -66,15 +66,6 @@ export async function verify(req: IncomingMessage, ...permissions: string[]): Pr
         message: 'Valid authentication required',
         sign_in_url: session.sign_in_url,
       },
-    };
-  }
-
-  const have = user.user_permissions ?? [];
-  if (permissions.length > 0 && !permissions.some((p) => have.includes(p))) {
-    return {
-      authenticated: false,
-      user,
-      error: { code: 403, message: `Requires one of: ${permissions.join(', ')}` },
     };
   }
 
@@ -161,16 +152,16 @@ async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<bo
  *
  * @example
  * ```typescript
- * app.get('/admin', auth('can_approve_invoice'), (req, res) => {
+ * app.get('/admin', auth(), (req, res) => {
  *   res.json({ user: userFromRequest(req) });
  * });
  * ```
  */
-export function auth(...permissions: string[]) {
+export function auth() {
   return async (req: StackureRequest, res: ServerResponse, next: Next): Promise<void> => {
     if (await adoptToken(req, res)) return;
 
-    const result = await verify(req, ...permissions);
+    const result = await verify(req);
     const err = result.error;
 
     if (!result.authenticated && err) {
@@ -185,7 +176,7 @@ export function auth(...permissions: string[]) {
         return;
       }
 
-      const label = err.code === 401 ? 'Unauthorized' : err.code === 403 ? 'Forbidden' : 'Error';
+      const label = err.code === 401 ? 'Unauthorized' : 'Error';
       res.setHeader('Content-Type', 'application/json');
       res.writeHead(err.code);
       res.end(
@@ -217,8 +208,8 @@ function deny(res: ServerResponse, status: number, error: string) {
  *
  * On success the user is attached to `req.user` (see `userFromRequest`).
  * A request that is not signed in gets a 401 whose `WWW-Authenticate` header
- * tells the AI client where to sign in, a missing permission gets a 403 and
- * a failed check gets a 503, all as JSON.
+ * tells the AI client where to sign in and a failed check gets a 503, both
+ * as JSON.
  *
  * The MCP endpoint must be served from the same site as the app's registered
  * URL unless an MCP URL is set for the app in Stackure.
@@ -230,7 +221,7 @@ function deny(res: ServerResponse, status: number, error: string) {
  * });
  * ```
  */
-export function mcp(...permissions: string[]) {
+export function mcp() {
   return async (req: StackureRequest, res: ServerResponse, next: Next): Promise<void> => {
     const path = reqUrl(req).split(/[?#]/)[0];
     const url = `${isHttps(req) ? 'https' : 'http'}://${req.headers.host ?? ''}${path}`;
@@ -244,11 +235,6 @@ export function mcp(...permissions: string[]) {
     if (!session.authenticated || !user) {
       res.setHeader('WWW-Authenticate', session.www_authenticate || 'Bearer');
       return deny(res, 401, 'unauthorized');
-    }
-
-    const have = user.user_permissions ?? [];
-    if (permissions.length > 0 && !permissions.some((p) => have.includes(p))) {
-      return deny(res, 403, 'forbidden');
     }
 
     req.user = user;

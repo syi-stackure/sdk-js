@@ -39,7 +39,6 @@ export interface User {
   user_email: string;
   user_first_name: string;
   user_last_name: string;
-  user_permissions: string[];
 }
 
 /** Successful `sendMagicLink()` response. */
@@ -49,7 +48,7 @@ export interface MagicLinkResponse {
 
 /** Why a `verify()` call did not authenticate. */
 export interface VerifyError {
-  /** HTTP status code: 401, 403, or 500 */
+  /** HTTP status code: 401 or 500 */
   code: number;
   message: string;
   /** Where to send an unauthenticated browser to sign in */
