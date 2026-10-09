@@ -39,6 +39,30 @@ export interface User {
   user_email: string;
   user_first_name: string;
   user_last_name: string;
+  /** Whether the user is an app admin or owner in their Stackure org, in charge of its apps */
+  user_is_app_admin: boolean;
+  /** The Stackure teams the user belongs to in their org, empty when none */
+  user_teams: Team[];
+}
+
+/** A Stackure team. */
+export interface Team {
+  team_id: string;
+  team_name: string;
+}
+
+/** A user listed by `directory()`. */
+export interface DirectoryUser {
+  user_id: string;
+  user_email: string;
+  user_first_name: string;
+  user_last_name: string;
+}
+
+/** `directory()` response: the users and teams in the caller's org who can open the app. */
+export interface Directory {
+  users: DirectoryUser[];
+  teams: Team[];
 }
 
 /** Successful `sendMagicLink()` response. */
@@ -223,7 +247,29 @@ export async function validateToken(token: string, req: IncomingMessage): Promis
     return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${id}` };
   }
 
-  return request<Session>('GET', '/api/public/auth/session/validate', {
+  return withFacts(await getWithSession<Session>('/api/public/auth/session/validate', id, token, req));
+}
+
+/**
+ * List the users and teams in the caller's Stackure org who can open the app,
+ * for pickers and sharing. Authenticated by the request's session cookie, so
+ * call it from a route behind `auth()`; MCP bearer tokens are not accepted.
+ * Throws `StackureError`, with code `auth` when there is no valid session.
+ *
+ * @example
+ * ```typescript
+ * const { users, teams } = await directory(req);
+ * ```
+ */
+export async function directory(req: IncomingMessage): Promise<Directory> {
+  const id = appId();
+  const token = sessionToken(req);
+  if (!isUUID(token)) throw new StackureError('auth', 'invalid session');
+  return getWithSession<Directory>('/api/public/directory', id, token, req);
+}
+
+function getWithSession<T>(path: string, id: string, token: string, req: IncomingMessage): Promise<T> {
+  return request<T>('GET', path, {
     query: { app_id: id },
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
@@ -231,17 +277,27 @@ export async function validateToken(token: string, req: IncomingMessage): Promis
   });
 }
 
+function withFacts<T extends Session>(s: T): T {
+  if (s.user) {
+    s.user.user_is_app_admin ??= false;
+    s.user.user_teams ??= [];
+  }
+  return s;
+}
+
 export interface McpSession extends Session {
   www_authenticate?: string;
 }
 
 export async function validateMcp(token: string, mcp: string, req: IncomingMessage): Promise<McpSession> {
-  return request<McpSession>('GET', '/api/public/auth/session/validate', {
-    query: { app_id: appId(), mcp },
-    ua: req.headers['user-agent'] ?? '',
-    ip: clientIp(req),
-    credential: isUUID(token) ? token : '',
-  });
+  return withFacts(
+    await request<McpSession>('GET', '/api/public/auth/session/validate', {
+      query: { app_id: appId(), mcp },
+      ua: req.headers['user-agent'] ?? '',
+      ip: clientIp(req),
+      credential: isUUID(token) ? token : '',
+    }),
+  );
 }
 
 export async function signOut(token: string, req: IncomingMessage): Promise<void> {

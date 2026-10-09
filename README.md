@@ -26,7 +26,7 @@ export STACKURE_APP_ID=...       # the app's UUID, shown on the app page in Stac
 export STACKURE_APP_SECRET=...   # from the app page in Stackure, shown once
 ```
 
-Both are read at call time, never cached. If `STACKURE_APP_ID` is missing or not a UUID, `sendMagicLink` and `validateSession` throw `StackureError` with code `validation`, `verify` returns a 500 result, `auth` responds 500 and `mcp` 503; sign-out never needs it. The secret is sent as `X-App-Secret` on every call except sign-out; the first call that actually reaches Stackure throws the same error if it is missing. `STACKURE_BASE_URL` optionally overrides the API host.
+Both are read at call time, never cached. If `STACKURE_APP_ID` is missing or not a UUID, `sendMagicLink`, `validateSession` and `directory` throw `StackureError` with code `validation`, `verify` returns a 500 result, `auth` responds 500 and `mcp` 503; sign-out never needs it. The secret is sent as `X-App-Secret` on every call except sign-out; the first call that actually reaches Stackure throws the same error if it is missing. `STACKURE_BASE_URL` optionally overrides the API host.
 
 A newly registered app is not usable by anyone, even its creator, until it is shared with the organization or assigned to a team in Stackure. Do that before testing sign-in.
 
@@ -65,6 +65,27 @@ AI clients such as Claude, Claude Code, VS Code and Cursor sign users in through
 A request that is not signed in gets a 401 with the `WWW-Authenticate` header that tells the AI client where to sign in, and a failed check gets a 503. It reads only `Authorization: Bearer`, never a cookie, and never redirects.
 
 The MCP endpoint must be served from the same site as the app's registered URL unless an MCP URL is set for the app in Stackure.
+
+## Identity facts
+
+Every authenticated user, from `auth` or `mcp`, also carries:
+
+- `user_is_app_admin`: the user is an app admin or owner in their Stackure org, in charge of its apps
+- `user_teams`: the Stackure teams they belong to (`{ team_id, team_name }[]`), empty when none
+
+List the users and teams in the caller's org who can open the app, for pickers and sharing:
+
+```js
+import { directory } from 'stackure';
+
+const { users, teams } = await directory(req);
+// users: { user_id, user_email, user_first_name, user_last_name }[]
+// teams: { team_id, team_name }[]
+```
+
+`directory` uses the request's session cookie, so call it from a route behind `auth`; MCP bearer tokens are not accepted. No valid session throws `StackureError` with code `auth`.
+
+Stackure defines no in-app permissions. Your app decides what these facts mean.
 
 ## Requirements
 
