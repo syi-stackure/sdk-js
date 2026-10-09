@@ -35,9 +35,9 @@ A newly registered app is not usable by anyone, even its creator, until it is sh
 ```js
 import { auth, userFromRequest } from 'stackure';
 
-app.get('/admin', auth('can_approve_invoice'), (req, res) => {
+app.get('/admin', auth(), (req, res) => {
   const user = userFromRequest(req);
-  res.json({ email: user.user_email, account: user.account_id, permissions: user.user_permissions });
+  res.json({ email: user.user_email, account: user.account_id });
 });
 ```
 
@@ -62,7 +62,7 @@ app.all('/mcp', mcp(), (req, res) => {
 
 AI clients such as Claude, Claude Code, VS Code and Cursor sign users in through Stackure. This one line checks every MCP request in real time with the same app secret. There is no extra setup.
 
-`mcp` takes the same arguments as `auth`, including required permissions. A request that is not signed in gets a 401 with the `WWW-Authenticate` header that tells the AI client where to sign in, a missing permission gets a 403, and a failed check gets a 503. It reads only `Authorization: Bearer`, never a cookie, and never redirects.
+A request that is not signed in gets a 401 with the `WWW-Authenticate` header that tells the AI client where to sign in, and a failed check gets a 503. It reads only `Authorization: Bearer`, never a cookie, and never redirects.
 
 The MCP endpoint must be served from the same site as the app's registered URL unless an MCP URL is set for the app in Stackure.
 
@@ -85,7 +85,7 @@ never on a timeout.
 ```js
 import { verify } from 'stackure';
 
-const result = await verify(req, 'can_approve_invoice');
+const result = await verify(req);
 
 if (!result.authenticated) {
   // result.error.code, result.error.message, result.error.sign_in_url

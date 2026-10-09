@@ -15,12 +15,10 @@ const USER = {
   user_email: 'ada@example.com',
   user_first_name: 'Ada',
   user_last_name: 'Lovelace',
-  user_permissions: ['can_read', 'can_comment'],
 };
 const BEARER = { Authorization: `Bearer ${TOKEN}` };
 const HTTPS = { 'X-Forwarded-Proto': 'https' };
 const UNAUTHORIZED = '{"error":"unauthorized"}';
-const FORBIDDEN = '{"error":"forbidden"}';
 const UNAVAILABLE = '{"error":"unavailable"}';
 
 const listen = (handler) =>
@@ -197,40 +195,6 @@ for (const [name, body, challenge] of [
   });
 }
 
-for (const [name, perms, user] of [
-  ['without the required permission', ['can_approve_invoice'], USER],
-  ['without any of the required permissions', ['can_approve_invoice', 'can_delete'], USER],
-  ['with no permissions at all', ['can_read'], { ...USER, user_permissions: undefined }],
-]) {
-  test(`authenticated ${name}: 403, user not attached`, async () => {
-    reply = json(200, { authenticated: true, user });
-    guard = mcp(...perms);
-    const out = await run('/mcp', BEARER);
-    once(here(), true);
-    denied(out, 403, FORBIDDEN, undefined);
-    assert.deepEqual(logged, []);
-  });
-}
-
-for (const [name, perms] of [
-  ['the required permission', ['can_comment']],
-  ['one of the required permissions', ['can_approve_invoice', 'can_read']],
-]) {
-  test(`authenticated with ${name}: attaches the user`, async () => {
-    guard = mcp(...perms);
-    const out = await run('/mcp', BEARER);
-    once(here(), true);
-    attached(out);
-  });
-}
-
-test('not authenticated on a route with a required permission: 401, not 403', async () => {
-  guard = mcp('can_read');
-  const out = await run('/mcp');
-  once(here(), false);
-  denied(out, 401, UNAUTHORIZED, CHALLENGE);
-});
-
 for (const [name, fail, sent, why] of [
   ['400', () => (reply = json(400, { error: 'bad request' })), 1, 'network 400'],
   ['401 invalid app secret', () => (reply = json(401, { error: 'invalid app secret' })), 1, 'auth 401'],
@@ -258,7 +222,7 @@ for (const [name, fail, sent, why] of [
 test('verify and validateSession with no app id configured: 500 result and validation error, no request', async () => {
   delete process.env.STACKURE_APP_ID;
   const req = { headers: { cookie: `session=${TOKEN}` } };
-  assert.deepEqual(await verify(req, 'can_read'), {
+  assert.deepEqual(await verify(req), {
     authenticated: false,
     error: { code: 500, message: 'Authentication verification failed' },
   });
