@@ -122,7 +122,7 @@ function once(url, bearer) {
 
 function attached(out) {
   assert.equal(out.status, 200);
-  assert.deepEqual(JSON.parse(out.body), { user: USER });
+  assert.deepEqual(JSON.parse(out.body), { user: { ...USER, user_is_app_admin: false, user_teams: [] } });
   assert.deepEqual(passed, [[]]);
   assert.equal(out.headers['www-authenticate'], undefined);
   assert.deepEqual(logged, []);
