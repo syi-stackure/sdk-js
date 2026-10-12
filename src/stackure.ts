@@ -67,6 +67,8 @@ export interface DirectoryOptions {
   cursor?: string;
   /** Page size: 100 by default, 200 at most */
   limit?: number;
+  /** Only these IDs that can open the app, up to 200, to check or name people and teams you already store */
+  ids?: string[];
 }
 
 /** One page from `directoryUsers()` or `directoryTeams()`, sorted by name. */
@@ -108,7 +110,7 @@ export interface Session {
 
 interface CallOpts {
   body?: unknown;
-  query?: Record<string, string>;
+  query?: Record<string, string> | string[][];
   token?: string;
   bearer?: string;
   credential?: string;
@@ -297,12 +299,13 @@ export function directoryTeams(req: IncomingMessage, opts: DirectoryOptions = {}
 }
 
 async function directory<T>(path: string, req: IncomingMessage, o: DirectoryOptions): Promise<DirectoryPage<T>> {
-  const query: Record<string, string> = { app_id: appId() };
+  const query = [['app_id', appId()]];
   const token = sessionToken(req);
   if (!isUUID(token)) throw new StackureError('auth', 'invalid session');
-  if (o.query) query['q'] = o.query;
-  if (o.cursor) query['cursor'] = o.cursor;
-  if (o.limit !== undefined) query['limit'] = String(o.limit);
+  if (o.query) query.push(['q', o.query]);
+  if (o.cursor) query.push(['cursor', o.cursor]);
+  if (o.limit !== undefined) query.push(['limit', String(o.limit)]);
+  for (const id of o.ids ?? []) query.push(['id', id]);
   const h = new Headers();
   const page: DirectoryPage<T> = {
     items: await getWithSession<T[]>(path, query, token, req, (r) => r.forEach((v, k) => h.set(k, v))),
@@ -316,7 +319,7 @@ async function directory<T>(path: string, req: IncomingMessage, o: DirectoryOpti
 
 function getWithSession<T>(
   path: string,
-  query: Record<string, string>,
+  query: Record<string, string> | string[][],
   token: string,
   req: IncomingMessage,
   seen?: (h: Headers) => void,

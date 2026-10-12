@@ -87,6 +87,12 @@ for (const [list, path, item] of [
     sent(calls[0], path, '&cursor=c1');
   });
 
+  test(`${list.name}: by ids`, async () => {
+    reply = json(200, [item]);
+    assert.deepEqual(await list(browser(), { ids: ['a', 'b'], limit: 200 }), { items: [item] });
+    sent(calls[0], path, '&limit=200&id=a&id=b');
+  });
+
   test(`${list.name}: empty page and a malformed total`, async () => {
     reply = json(200, [], { 'X-Total-Count': 'many' });
     assert.deepEqual(await list(browser()), { items: [] });
