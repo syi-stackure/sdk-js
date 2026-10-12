@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { afterEach, beforeEach, test } from 'node:test';
-import { StackureError, directory, mcp, validateSession } from '../dist/index.js';
+import { StackureError, directoryTeams, directoryUsers, mcp, validateSession } from '../dist/index.js';
 
 const APP = '7f3c1a2e-9b4d-4e6f-8a1b-2c3d4e5f6071';
 const TOKEN = '3b241101-e2bb-4255-8caf-4136c566a962';
@@ -14,10 +14,9 @@ const ADA = {
 };
 const USER = { ...ADA, account_id: '5e4d3c2b-1a0f-4e9d-8c7b-6a5f4e3d2c1b' };
 const OPS = { team_id: '4b5c6d7e-8f9a-4b1c-8d2e-3f4a5b6c7d8e', team_name: 'Ops' };
-const DIRECTORY = { users: [ADA], teams: [OPS] };
 
-const json = (status, body) => (res) =>
-  res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
+const json = (status, body, headers = {}) => (res) =>
+  res.writeHead(status, { 'Content-Type': 'application/json', ...headers }).end(JSON.stringify(body));
 
 let api, calls, reply;
 
@@ -47,9 +46,9 @@ const browser = (headers = { cookie: `session=${TOKEN}` }) => ({
   socket: {},
 });
 
-function sent(c) {
+function sent(c, path = '/api/public/directory/users', query = '') {
   assert.equal(c.method, 'GET');
-  assert.equal(c.url, `/api/public/directory?app_id=${APP}`);
+  assert.equal(c.url, `${path}?app_id=${APP}${query}`);
   assert.equal(c.headers['x-app-secret'], SECRET);
   assert.equal(c.headers.cookie, `session=${TOKEN}`);
   assert.equal(c.headers.authorization, undefined);
@@ -71,47 +70,64 @@ for (const [name, user, want] of [
   });
 }
 
-test('directory: users and teams who can open the app', async () => {
-  reply = json(200, DIRECTORY);
-  assert.deepEqual(await directory(browser()), DIRECTORY);
-  assert.equal(calls.length, 1);
-  sent(calls[0]);
-});
-
-for (const [name, status, body, code, sends] of [
-  ['invalid session', 401, { error: 'invalid session' }, 'auth', 1],
-  ['invalid app secret', 401, { error: 'invalid app secret' }, 'auth', 1],
-  ['bad app id', 400, { error: 'invalid app_id format' }, 'network', 1],
-  ['rate limited', 429, { error: 'rate limited' }, 'network', 1],
-  ['server error', 500, { error: 'internal' }, 'network', 2],
+for (const [list, path, item] of [
+  [directoryUsers, '/api/public/directory/users', ADA],
+  [directoryTeams, '/api/public/directory/teams', OPS],
 ]) {
-  test(`directory ${name}: ${code} error with status ${status}`, async () => {
-    reply = json(status, body);
-    await assert.rejects(directory(browser()), (e) => {
-      assert.ok(e instanceof StackureError);
-      assert.equal(e.code, code);
-      assert.equal(e.statusCode, status);
-      if (status === 401) assert.equal(e.message, JSON.stringify(body));
-      return true;
-    });
-    assert.equal(calls.length, sends);
-    calls.forEach(sent);
+  test(`${list.name}: first page with search, cursor and total`, async () => {
+    reply = json(200, [item], { 'X-Next-Cursor': 'c1', 'X-Total-Count': '3' });
+    assert.deepEqual(await list(browser(), { query: 'ada lo', limit: 2 }), { items: [item], nextCursor: 'c1', total: 3 });
+    assert.equal(calls.length, 1);
+    sent(calls[0], path, '&q=ada+lo&limit=2');
   });
-}
 
-for (const [name, headers] of [
-  ['no session cookie', {}],
-  ['a malformed session cookie', { cookie: 'session=not-a-token' }],
-  ['an MCP bearer token only', { authorization: `Bearer ${TOKEN}` }],
-]) {
-  test(`directory with ${name}: auth error, no request`, async () => {
-    await assert.rejects(directory(browser(headers)), { code: 'auth', message: 'invalid session', statusCode: undefined });
+  test(`${list.name}: last page has no cursor or total`, async () => {
+    reply = json(200, [item]);
+    assert.deepEqual(await list(browser(), { cursor: 'c1' }), { items: [item] });
+    sent(calls[0], path, '&cursor=c1');
+  });
+
+  test(`${list.name}: empty page and a malformed total`, async () => {
+    reply = json(200, [], { 'X-Total-Count': 'many' });
+    assert.deepEqual(await list(browser()), { items: [] });
+    sent(calls[0], path);
+  });
+
+  for (const [name, status, body, code, sends] of [
+    ['invalid session', 401, { error: 'invalid session' }, 'auth', 1],
+    ['invalid app secret', 401, { error: 'invalid app secret' }, 'auth', 1],
+    ['bad cursor', 400, { error: 'invalid input: cursor' }, 'network', 1],
+    ['rate limited', 429, { error: 'rate limited' }, 'network', 1],
+    ['server error', 500, { error: 'internal' }, 'network', 2],
+  ]) {
+    test(`${list.name} ${name}: ${code} error with status ${status}`, async () => {
+      reply = json(status, body);
+      await assert.rejects(list(browser()), (e) => {
+        assert.ok(e instanceof StackureError);
+        assert.equal(e.code, code);
+        assert.equal(e.statusCode, status);
+        if (status === 401) assert.equal(e.message, JSON.stringify(body));
+        return true;
+      });
+      assert.equal(calls.length, sends);
+      calls.forEach((c) => sent(c, path));
+    });
+  }
+
+  for (const [name, headers] of [
+    ['no session cookie', {}],
+    ['a malformed session cookie', { cookie: 'session=not-a-token' }],
+    ['an MCP bearer token only', { authorization: `Bearer ${TOKEN}` }],
+  ]) {
+    test(`${list.name} with ${name}: auth error, no request`, async () => {
+      await assert.rejects(list(browser(headers)), { code: 'auth', message: 'invalid session', statusCode: undefined });
+      assert.equal(calls.length, 0);
+    });
+  }
+
+  test(`${list.name} with no app secret: validation error, no request`, async () => {
+    delete process.env.STACKURE_APP_SECRET;
+    await assert.rejects(list(browser()), { code: 'validation', message: 'STACKURE_APP_SECRET is not set' });
     assert.equal(calls.length, 0);
   });
 }
-
-test('directory with no app secret: validation error, no request', async () => {
-  delete process.env.STACKURE_APP_SECRET;
-  await assert.rejects(directory(browser()), { code: 'validation', message: 'STACKURE_APP_SECRET is not set' });
-  assert.equal(calls.length, 0);
-});

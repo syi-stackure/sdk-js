@@ -51,7 +51,7 @@ export interface Team {
   team_name: string;
 }
 
-/** A user listed by `directory()`. */
+/** A user listed by `directoryUsers()`. */
 export interface DirectoryUser {
   user_id: string;
   user_email: string;
@@ -59,10 +59,23 @@ export interface DirectoryUser {
   user_last_name: string;
 }
 
-/** `directory()` response: the users and teams in the caller's org who can open the app. */
-export interface Directory {
-  users: DirectoryUser[];
-  teams: Team[];
+/** Options for `directoryUsers()` and `directoryTeams()`. */
+export interface DirectoryOptions {
+  /** Search text, matching a user's name, email and job title, or a team's name */
+  query?: string;
+  /** `nextCursor` from the previous page */
+  cursor?: string;
+  /** Page size: 100 by default, 200 at most */
+  limit?: number;
+}
+
+/** One page from `directoryUsers()` or `directoryTeams()`, sorted by name. */
+export interface DirectoryPage<T> {
+  items: T[];
+  /** Pass as `cursor` to get the next page; absent on the last one */
+  nextCursor?: string;
+  /** Total matches, on the first page when there are 10,000 or fewer */
+  total?: number;
 }
 
 /** Successful `sendMagicLink()` response. */
@@ -103,6 +116,7 @@ interface CallOpts {
   redirect?: 'manual';
   ua?: string;
   ip?: string;
+  seen?: (h: Headers) => void;
 }
 
 async function request<T>(method: string, path: string, o: CallOpts = {}): Promise<T> {
@@ -146,6 +160,7 @@ async function request<T>(method: string, path: string, o: CallOpts = {}): Promi
       throw last;
     }
 
+    o.seen?.(res.headers);
     if (res.status >= 500 && canRetry(attempt)) {
       last = new StackureError('network', `server error (${res.status})`, res.status);
       continue;
@@ -247,33 +262,71 @@ export async function validateToken(token: string, req: IncomingMessage): Promis
     return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${id}` };
   }
 
-  return withFacts(await getWithSession<Session>('/api/public/auth/session/validate', id, token, req));
+  return withFacts(await getWithSession<Session>('/api/public/auth/session/validate', { app_id: id }, token, req));
 }
 
 /**
- * List the users and teams in the caller's Stackure org who can open the app,
- * for pickers and sharing. Authenticated by the request's session cookie, so
- * call it from a route behind `auth()`; MCP bearer tokens are not accepted.
- * Throws `StackureError`, with code `auth` when there is no valid session.
+ * List the users in the caller's Stackure org who can open the app, one page
+ * at a time, for pickers and sharing. Authenticated by the request's session
+ * cookie, so call it from a route behind `auth()`; MCP bearer tokens are not
+ * accepted. Throws `StackureError`, with code `auth` when there is no valid
+ * session.
  *
  * @example
  * ```typescript
- * const { users, teams } = await directory(req);
+ * const { items, nextCursor, total } = await directoryUsers(req, { query: 'ada' });
+ * const next = nextCursor && (await directoryUsers(req, { query: 'ada', cursor: nextCursor }));
  * ```
  */
-export async function directory(req: IncomingMessage): Promise<Directory> {
-  const id = appId();
-  const token = sessionToken(req);
-  if (!isUUID(token)) throw new StackureError('auth', 'invalid session');
-  return getWithSession<Directory>('/api/public/directory', id, token, req);
+export function directoryUsers(req: IncomingMessage, opts: DirectoryOptions = {}): Promise<DirectoryPage<DirectoryUser>> {
+  return directory('/api/public/directory/users', req, opts);
 }
 
-function getWithSession<T>(path: string, id: string, token: string, req: IncomingMessage): Promise<T> {
+/**
+ * List the teams in the caller's Stackure org that have the app, one page at a
+ * time: every team when the app is available to everyone, otherwise the teams
+ * it's shared with. Authenticated like `directoryUsers()`.
+ *
+ * @example
+ * ```typescript
+ * const { items } = await directoryTeams(req, { limit: 50 });
+ * ```
+ */
+export function directoryTeams(req: IncomingMessage, opts: DirectoryOptions = {}): Promise<DirectoryPage<Team>> {
+  return directory('/api/public/directory/teams', req, opts);
+}
+
+async function directory<T>(path: string, req: IncomingMessage, o: DirectoryOptions): Promise<DirectoryPage<T>> {
+  const query: Record<string, string> = { app_id: appId() };
+  const token = sessionToken(req);
+  if (!isUUID(token)) throw new StackureError('auth', 'invalid session');
+  if (o.query) query['q'] = o.query;
+  if (o.cursor) query['cursor'] = o.cursor;
+  if (o.limit !== undefined) query['limit'] = String(o.limit);
+  const h = new Headers();
+  const page: DirectoryPage<T> = {
+    items: await getWithSession<T[]>(path, query, token, req, (r) => r.forEach((v, k) => h.set(k, v))),
+  };
+  const next = h.get('X-Next-Cursor');
+  const total = h.get('X-Total-Count');
+  if (next) page.nextCursor = next;
+  if (total && /^\d+$/.test(total)) page.total = Number(total);
+  return page;
+}
+
+function getWithSession<T>(
+  path: string,
+  query: Record<string, string>,
+  token: string,
+  req: IncomingMessage,
+  seen?: (h: Headers) => void,
+): Promise<T> {
   return request<T>('GET', path, {
-    query: { app_id: id },
+    query,
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
     token,
+    ...(seen && { seen }),
   });
 }
 
