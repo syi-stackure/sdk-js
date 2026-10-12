@@ -246,7 +246,7 @@ export function mcp() {
  * Sign the user out everywhere. Returns a promise (`Promise<void>`) that
  * resolves once the response is handled.
  *
- * Mount it for every method on the logout path. Trigger it with a form or
+ * Mount it for every method on the sign-out path. Trigger it with a form or
  * button that POSTs from the app's own page; a link or any other request is
  * sent to Stackure's sign-out page, where the user confirms.
  *
