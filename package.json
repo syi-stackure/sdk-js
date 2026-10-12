@@ -45,7 +45,7 @@
     "type": "git",
     "url": "git+https://github.com/syi-stackure/sdk-js.git"
   },
-  "homepage": "https://github.com/syi-stackure/sdk-js#readme",
+  "homepage": "https://stackure.com/docs/javascript",
   "bugs": {
     "url": "https://github.com/syi-stackure/sdk-js/issues"
   },
