@@ -1,7 +1,7 @@
 {
   "name": "stackure",
   "version": "0.0.0",
-  "description": "Official Stackure authentication SDK for JavaScript and TypeScript",
+  "description": "Stackure for Node.js: passwordless auth for B2B apps as Express and Connect middleware. Zero dependencies.",
   "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -24,14 +24,14 @@
     "stackure",
     "authentication",
     "auth",
-    "sso",
-    "magic-link",
     "passwordless",
-    "verify",
-    "sdk",
-    "typescript",
+    "magic-link",
+    "b2b",
+    "rbac",
+    "mcp",
+    "middleware",
     "express",
-    "middleware"
+    "typescript"
   ],
   "author": {
     "name": "Stackure",
