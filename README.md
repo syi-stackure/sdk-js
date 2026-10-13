@@ -2,12 +2,9 @@
 
 [![Check build](https://github.com/syi-stackure/sdk-js/actions/workflows/check-build.yml/badge.svg)](https://github.com/syi-stackure/sdk-js/actions/workflows/check-build.yml)
 [![npm version](https://img.shields.io/npm/v/stackure.svg)](https://www.npmjs.com/package/stackure)
-[![npm downloads](https://img.shields.io/npm/dm/stackure.svg)](https://www.npmjs.com/package/stackure)
-[![Node.js version](https://img.shields.io/node/v/stackure.svg)](https://nodejs.org)
-[![npm provenance](https://img.shields.io/badge/npm-provenance-blue)](https://docs.npmjs.com/generating-provenance-statements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-Add Stackure sign-in to a Node.js app with Express or Connect middleware. Zero dependencies.
+[Stackure](https://stackure.com) is passwordless auth for B2B apps. This SDK adds it to a Node.js app as Express or Connect middleware, with zero dependencies.
 
 ## Install
 
@@ -17,7 +14,7 @@ npm install stackure
 
 Needs Node.js 22 or later. ESM only.
 
-## Example
+## Quickstart
 
 Set `STACKURE_APP_ID` and `STACKURE_APP_SECRET` from the app's page in Stackure, then:
 
@@ -31,9 +28,10 @@ app.get('/', (req, res) => res.json(userFromRequest(req)));
 app.listen(3000);
 ```
 
-## Documentation
+## Docs
 
-Configuration, sign-in handoff, MCP, sign-out, errors and limits: [stackure.com/docs/javascript](https://stackure.com/docs/javascript)
+- Guide and reference: [stackure.com/docs/javascript](https://stackure.com/docs/javascript)
+- For AI agents: [stackure.com/llms.txt](https://stackure.com/llms.txt)
 
 ## License
 
