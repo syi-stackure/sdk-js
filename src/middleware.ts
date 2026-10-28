@@ -1,20 +1,26 @@
+import { createHash, randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { TLSSocket } from 'node:tls';
 import { StackureError } from './errors.js';
 import {
+  CODE_COOKIE,
+  CODE_PARAM,
   SESSION_COOKIE,
   TOKEN_PARAM,
+  VERIFIER_COOKIE,
   baseUrl,
   bearerToken,
+  cookie,
+  exchangeCode,
+  isLoopback,
   reqUrl,
   sessionToken,
   signOut,
   validateMcp,
-  validateSession,
   validateToken,
   origin,
 } from './stackure.js';
-import type { Session, User, VerifyResult } from './stackure.js';
+import type { DevSignIn, Session, User, VerifyResult } from './stackure.js';
 import { isUUID } from './validation.js';
 
 /** Request shape the middleware reads from and attaches the user to. */
@@ -49,9 +55,13 @@ function isHttps(req: IncomingMessage): boolean {
  * ```
  */
 export async function verify(req: IncomingMessage): Promise<VerifyResult> {
+  return check(req);
+}
+
+async function check(req: IncomingMessage, dev?: DevSignIn): Promise<VerifyResult> {
   let session: Session;
   try {
-    session = await validateSession(req);
+    session = await validateToken(sessionToken(req), req, dev);
   } catch (e) {
     console.error('stackure: verification error:', e instanceof Error ? e.message : String(e));
     return { authenticated: false, error: { code: 500, message: 'Authentication verification failed' } };
@@ -88,6 +98,8 @@ function sameOriginPost(req: IncomingMessage): boolean {
 
 const MAX_HANDOFF_BODY = 4096;
 const SESSION_MAX_AGE = 7 * 24 * 3600;
+const CODE_MAX_AGE = 60;
+const VERIFIER_MAX_AGE = 15 * 60;
 
 async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
@@ -99,21 +111,22 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return size > MAX_HANDOFF_BODY ? '' : Buffer.concat(chunks).toString();
 }
 
-async function handoffToken(req: StackureRequest): Promise<string> {
+async function formField(req: StackureRequest, field: string, origins: string[]): Promise<string> {
   if (req.method !== 'POST') return '';
-  if ((req.headers['origin'] ?? '') !== origin()) return '';
+  if (!origins.includes(String(req.headers['origin'] ?? ''))) return '';
   if (!String(req.headers['content-type'] ?? '').startsWith('application/x-www-form-urlencoded')) {
     return '';
   }
 
   const b = req.body;
-  if (b && typeof b === 'object') return String((b as Record<string, unknown>)[TOKEN_PARAM] ?? '');
-  const raw = typeof b === 'string' ? (b.length > MAX_HANDOFF_BODY ? '' : b) : await readBody(req);
-  return new URLSearchParams(raw).get(TOKEN_PARAM) ?? '';
+  if (b && typeof b === 'object') return String((b as Record<string, unknown>)[field] ?? '');
+  if (typeof b !== 'string') req.body = await readBody(req);
+  const raw = String(req.body);
+  return raw.length > MAX_HANDOFF_BODY ? '' : (new URLSearchParams(raw).get(field) ?? '');
 }
 
-function setSessionCookie(res: ServerResponse, value: string, secure: boolean, maxAge?: number) {
-  const parts = [`${SESSION_COOKIE}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
+function setCookie(res: ServerResponse, name: string, value: string, secure: boolean, maxAge?: number) {
+  const parts = [`${name}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
   if (secure) parts.push('Secure');
   if (maxAge !== undefined) parts.push(`Max-Age=${maxAge}`);
 
@@ -128,16 +141,56 @@ function redirect(res: ServerResponse, status: number, url: string) {
   res.end();
 }
 
+function here(req: IncomingMessage): string {
+  const u = reqUrl(req);
+  return /^\/(?![\/\\])/.test(u) ? u : '/';
+}
+
 async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<boolean> {
-  const token = await handoffToken(req);
+  const token = await formField(req, TOKEN_PARAM, [origin()]);
   if (!token) return false;
   const session = await validateToken(token, req).catch(() => undefined);
   if (!session?.authenticated) return false;
 
-  setSessionCookie(res, token, isHttps(req), SESSION_MAX_AGE);
+  setCookie(res, SESSION_COOKIE, token, isHttps(req), SESSION_MAX_AGE);
+  redirect(res, 303, here(req));
+  return true;
+}
 
-  const u = reqUrl(req);
-  redirect(res, 303, /^\/(?![\/\\])/.test(u) ? u : '/');
+function devSignIn(req: IncomingMessage, verifier: string): DevSignIn {
+  return {
+    url: `${isHttps(req) ? 'https' : 'http'}://${req.headers.host}${here(req)}`,
+    challenge: createHash('sha256').update(verifier).digest('base64url'),
+  };
+}
+
+async function stashCode(req: StackureRequest, res: ServerResponse): Promise<boolean> {
+  const code = await formField(req, CODE_PARAM, ['null', origin()]);
+  if (!/^[0-9a-f]{64}$/.test(code)) return false;
+
+  setCookie(res, CODE_COOKIE, code, isHttps(req), CODE_MAX_AGE);
+  redirect(res, 303, here(req));
+  return true;
+}
+
+async function redeemCode(req: StackureRequest, res: ServerResponse): Promise<boolean> {
+  const code = cookie(req, CODE_COOKIE);
+  if (!code) return false;
+  const secure = isHttps(req);
+  setCookie(res, CODE_COOKIE, '', secure, 0);
+  setCookie(res, VERIFIER_COOKIE, '', secure, 0);
+
+  const token = await exchangeCode(code, cookie(req, VERIFIER_COOKIE), req).catch((e: unknown) => {
+    console.error('stackure: localhost sign-in failed:', e instanceof Error ? e.message : String(e));
+    return '';
+  });
+  if (!token) {
+    deny(res, 401, 'localhost sign-in failed, reload to try again');
+    return true;
+  }
+
+  setCookie(res, SESSION_COOKIE, token, secure, SESSION_MAX_AGE);
+  redirect(res, 303, here(req));
   return true;
 }
 
@@ -150,6 +203,12 @@ async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<bo
  * Browser requests (Accept: text/html) redirect to sign-in on 401; API
  * requests get JSON.
  *
+ * On localhost or 127.0.0.1 with the app's development secret, sign-in
+ * returns to the page that asked for it: Stackure posts a one-time code
+ * there, and the middleware swaps it for a session using the secret and a
+ * check value it keeps in a cookie. Only app admins of the organization that
+ * added the app can sign in this way.
+ *
  * @example
  * ```typescript
  * app.get('/admin', auth(), (req, res) => {
@@ -161,7 +220,11 @@ export function auth() {
   return async (req: StackureRequest, res: ServerResponse, next: Next): Promise<void> => {
     if (await adoptToken(req, res)) return;
 
-    const result = await verify(req);
+    const local = isLoopback(req);
+    if (local && ((await stashCode(req, res)) || (await redeemCode(req, res)))) return;
+
+    const verifier = local ? randomBytes(32).toString('base64url') : '';
+    const result = await check(req, local ? devSignIn(req, verifier) : undefined);
     const err = result.error;
 
     if (!result.authenticated && err) {
@@ -172,6 +235,7 @@ export function auth() {
         !accept.includes('application/json') &&
         err.sign_in_url
       ) {
+        if (local) setCookie(res, VERIFIER_COOKIE, verifier, isHttps(req), VERIFIER_MAX_AGE);
         redirect(res, 302, err.sign_in_url);
         return;
       }
@@ -271,6 +335,6 @@ export async function logout(req: IncomingMessage, res: ServerResponse): Promise
   const ok = !isUUID(token) || (await signOut(token, req).then(() => true, () => false));
   if (res.headersSent) return;
 
-  setSessionCookie(res, '', isHttps(req), 0);
+  setCookie(res, SESSION_COOKIE, '', isHttps(req), 0);
   redirect(res, 303, baseUrl() + (ok ? '/' : '/signout'));
 }

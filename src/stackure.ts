@@ -9,6 +9,9 @@ const RETRY_DELAY_MS = 500;
 
 export const SESSION_COOKIE = 'session';
 export const TOKEN_PARAM = 'session_token';
+export const CODE_PARAM = 'stackure_code';
+export const CODE_COOKIE = 'stackure_code';
+export const VERIFIER_COOKIE = 'stackure_verifier';
 
 export function origin(): string {
   return new URL(baseUrl()).origin;
@@ -108,8 +111,14 @@ export interface Session {
   sign_in_url?: string;
 }
 
+export interface DevSignIn {
+  url: string;
+  challenge: string;
+}
+
 interface CallOpts {
   body?: unknown;
+  once?: boolean;
   query?: Record<string, string> | string[][];
   token?: string;
   bearer?: string;
@@ -137,7 +146,7 @@ async function request<T>(method: string, path: string, o: CallOpts = {}): Promi
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const timeout = () => new StackureError('timeout', `request timed out after ${REQUEST_TIMEOUT_MS}ms`);
   const canRetry = (attempt: number) =>
-    attempt < MAX_RETRIES && Date.now() - start + RETRY_DELAY_MS < REQUEST_TIMEOUT_MS;
+    !o.once && attempt < MAX_RETRIES && Date.now() - start + RETRY_DELAY_MS < REQUEST_TIMEOUT_MS;
 
   let last: StackureError | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -227,6 +236,11 @@ export function sessionToken(req: IncomingMessage): string {
   return cookie(req, SESSION_COOKIE);
 }
 
+export function isLoopback(req: IncomingMessage): boolean {
+  const host = (req.headers.host ?? '').toLowerCase().replace(/:\d+$/, '');
+  return host === 'localhost' || host === '127.0.0.1';
+}
+
 export function bearerToken(req: IncomingMessage): string {
   return /^Bearer +(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '';
 }
@@ -257,14 +271,32 @@ export async function validateSession(req: IncomingMessage): Promise<Session> {
   return validateToken(sessionToken(req), req);
 }
 
-export async function validateToken(token: string, req: IncomingMessage): Promise<Session> {
+export async function validateToken(token: string, req: IncomingMessage, dev?: DevSignIn): Promise<Session> {
   const id = appId();
 
-  if (!isUUID(token)) {
+  if (!isUUID(token) && !dev) {
     return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${id}` };
   }
 
-  return withFacts(await getWithSession<Session>('/api/public/auth/session/validate', { app_id: id }, token, req));
+  const query: Record<string, string> = { app_id: id };
+  if (dev) {
+    query['return'] = dev.url;
+    query['challenge'] = dev.challenge;
+  }
+  return withFacts(
+    await getWithSession<Session>('/api/public/auth/session/validate', query, isUUID(token) ? token : '', req),
+  );
+}
+
+export async function exchangeCode(code: string, verifier: string, req: IncomingMessage): Promise<string> {
+  const res = await request<{ session_token?: string }>('POST', '/api/public/auth/session/exchange', {
+    body: { app_id: appId(), code, verifier },
+    once: true,
+    ua: req.headers['user-agent'] ?? '',
+    ip: clientIp(req),
+  });
+  if (!isUUID(res.session_token ?? '')) throw new StackureError('network', 'invalid exchange response');
+  return res.session_token!;
 }
 
 /**
