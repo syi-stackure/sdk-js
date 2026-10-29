@@ -20,7 +20,7 @@ import {
   validateToken,
   origin,
 } from './stackure.js';
-import type { DevSignIn, Session, User, VerifyResult } from './stackure.js';
+import type { DevSignIn, Session, User, VerifyError, VerifyResult } from './stackure.js';
 import { isUUID } from './validation.js';
 
 /** Request shape the middleware reads from and attaches the user to. */
@@ -63,8 +63,7 @@ async function check(req: IncomingMessage, dev?: DevSignIn): Promise<VerifyResul
   try {
     session = await validateToken(sessionToken(req), req, dev);
   } catch (e) {
-    console.error('stackure: verification error:', e instanceof Error ? e.message : String(e));
-    return { authenticated: false, error: { code: 500, message: 'Authentication verification failed' } };
+    return { authenticated: false, error: verifyFailed(e) };
   }
 
   const user = session.user;
@@ -80,6 +79,20 @@ async function check(req: IncomingMessage, dev?: DevSignIn): Promise<VerifyResul
   }
 
   return { authenticated: true, user };
+}
+
+function verifyFailed(e: unknown): VerifyError {
+  console.error('stackure: verification error:', e instanceof Error ? e.message : String(e));
+  return { code: 500, message: 'Authentication verification failed' };
+}
+
+function wantsHtml(req: IncomingMessage): boolean {
+  const accept = String(req.headers['accept'] ?? '');
+  return accept.includes('text/html') && !accept.includes('application/json');
+}
+
+function failurePage(message: 'appUnavailable' | 'localhostFailed'): string {
+  return `${baseUrl()}/sign-in/magic-link?state=error&message=${message}`;
 }
 
 function headerLines(req: IncomingMessage, name: string): number {
@@ -149,8 +162,14 @@ function here(req: IncomingMessage): string {
 async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<boolean> {
   const token = await formField(req, TOKEN_PARAM, [origin()]);
   if (!token) return false;
-  const session = await validateToken(token, req).catch(() => undefined);
-  if (!session?.authenticated) return false;
+  let session: Session;
+  try {
+    session = await validateToken(token, req);
+  } catch (e) {
+    refuse(req, res, verifyFailed(e));
+    return true;
+  }
+  if (!session.authenticated) return false;
 
   setCookie(res, SESSION_COOKIE, token, isHttps(req), SESSION_MAX_AGE);
   redirect(res, 303, here(req));
@@ -185,7 +204,8 @@ async function redeemCode(req: StackureRequest, res: ServerResponse): Promise<bo
     return '';
   });
   if (!token) {
-    deny(res, 401, 'localhost sign-in failed, reload to try again');
+    if (wantsHtml(req)) redirect(res, 303, failurePage('localhostFailed'));
+    else deny(res, 401, 'localhost sign-in failed, reload to try again');
     return true;
   }
 
@@ -200,8 +220,9 @@ async function redeemCode(req: StackureRequest, res: ServerResponse): Promise<bo
  * token valid only for this app) and storing it as a cookie on your domain.
  *
  * On success the user is attached to `req.user` (see `userFromRequest`).
- * Browser requests (Accept: text/html) redirect to sign-in on 401; API
- * requests get JSON.
+ * Browser requests (Accept: text/html) redirect to sign-in on 401, and to a
+ * Stackure page that says sign-in couldn't be confirmed when the check fails;
+ * API requests get JSON.
  *
  * On localhost or 127.0.0.1 with the app's development secret, sign-in
  * returns to the page that asked for it: Stackure posts a one-time code
@@ -228,34 +249,34 @@ export function auth() {
     const err = result.error;
 
     if (!result.authenticated && err) {
-      const accept = String(req.headers['accept'] ?? '');
-      if (
-        err.code === 401 &&
-        accept.includes('text/html') &&
-        !accept.includes('application/json') &&
-        err.sign_in_url
-      ) {
+      if (err.code === 401 && wantsHtml(req) && err.sign_in_url) {
         if (local) setCookie(res, VERIFIER_COOKIE, verifier, isHttps(req), VERIFIER_MAX_AGE);
         redirect(res, 302, err.sign_in_url);
         return;
       }
 
-      const label = err.code === 401 ? 'Unauthorized' : 'Error';
-      res.setHeader('Content-Type', 'application/json');
-      res.writeHead(err.code);
-      res.end(
-        JSON.stringify({
-          error: label,
-          message: err.message,
-          sign_in_url: err.sign_in_url ?? '',
-        }),
-      );
+      refuse(req, res, err);
       return;
     }
 
     req.user = result.user;
     next();
   };
+}
+
+function refuse(req: IncomingMessage, res: ServerResponse, err: VerifyError) {
+  if (err.code === 500 && wantsHtml(req)) return redirect(res, 303, failurePage('appUnavailable'));
+
+  const label = err.code === 401 ? 'Unauthorized' : 'Error';
+  res.setHeader('Content-Type', 'application/json');
+  res.writeHead(err.code);
+  res.end(
+    JSON.stringify({
+      error: label,
+      message: err.message,
+      sign_in_url: err.sign_in_url ?? '',
+    }),
+  );
 }
 
 function deny(res: ServerResponse, status: number, error: string) {
