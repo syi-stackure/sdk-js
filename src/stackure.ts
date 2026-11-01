@@ -2,7 +2,6 @@ import type { IncomingMessage } from 'node:http';
 import { StackureError } from './errors.js';
 import { isUUID, validateEmail } from './validation.js';
 
-const DEFAULT_BASE_URL = 'https://stackure.com';
 const REQUEST_TIMEOUT_MS = 2000;
 const MAX_RETRIES = 1;
 const RETRY_DELAY_MS = 500;
@@ -14,12 +13,12 @@ export const CODE_COOKIE = 'stackure_code';
 export const VERIFIER_COOKIE = 'stackure_verifier';
 
 export function origin(): string {
-  return new URL(baseUrl()).origin;
+  const base = baseUrl();
+  return base ? new URL(base).origin : '';
 }
 
 export function baseUrl(): string {
-  const v = process.env['STACKURE_BASE_URL'];
-  return v ? v.replace(/\/+$/, '') : DEFAULT_BASE_URL;
+  return (process.env['STACKURE_BASE_URL'] ?? '').replace(/\/+$/, '');
 }
 
 export function appSecret(): string {
@@ -131,6 +130,7 @@ interface CallOpts {
 }
 
 async function request<T>(method: string, path: string, o: CallOpts = {}): Promise<T> {
+  if (!baseUrl()) throw new StackureError('validation', 'STACKURE_BASE_URL is not set');
   const url = baseUrl() + path + (o.query ? '?' + new URLSearchParams(o.query) : '');
   const headers: Record<string, string> = o.bearer
     ? { Authorization: `Bearer ${o.bearer}` }

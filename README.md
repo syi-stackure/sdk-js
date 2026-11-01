@@ -16,7 +16,7 @@ Needs Node.js 22 or later. ESM only.
 
 ## Quickstart
 
-Set `STACKURE_APP_ID` and `STACKURE_APP_SECRET` from the app's page in Stackure, then:
+Set `STACKURE_APP_ID` and `STACKURE_APP_SECRET` from the app's page in Stackure and `STACKURE_BASE_URL` to your region's address, `https://eu.stackure.com` or `https://us.stackure.com`, then:
 
 ```js
 import express from 'express';
