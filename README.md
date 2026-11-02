@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/stackure.svg)](https://www.npmjs.com/package/stackure)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-[Stackure](https://stackure.com) is passwordless auth for B2B apps. This SDK adds it to a Node.js app as Express or Connect middleware, with zero dependencies.
+[Stackure](https://stackure.com) is sign-in and app access for your people and your partners. This SDK adds it to a Node.js app as Express or Connect middleware, with zero dependencies.
 
 ## Install
 
