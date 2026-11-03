@@ -5,6 +5,7 @@ import { isUUID, validateEmail } from './validation.js';
 const REQUEST_TIMEOUT_MS = 2000;
 const MAX_RETRIES = 1;
 const RETRY_DELAY_MS = 500;
+const MAX_EVENTS = 100;
 
 export const SESSION_COOKIE = 'session';
 export const TOKEN_PARAM = 'session_token';
@@ -284,7 +285,9 @@ export async function validateToken(token: string, req: IncomingMessage, dev?: D
     query['challenge'] = dev.challenge;
   }
   return withFacts(
-    await getWithSession<Session>('/api/public/auth/session/validate', query, isUUID(token) ? token : '', req),
+    noteWaiting(
+      await getWithSession<Session & Validated>('/api/public/auth/session/validate', query, isUUID(token) ? token : '', req),
+    ),
   );
 }
 
@@ -349,6 +352,126 @@ async function directory<T>(path: string, req: IncomingMessage, o: DirectoryOpti
   return page;
 }
 
+type OrgClosed = (accountId: string) => unknown;
+
+interface AppEvent {
+  id: string;
+  type: string;
+  data: { account_id: string };
+}
+
+interface AppEvents {
+  events: AppEvent[];
+  more: boolean;
+}
+
+let orgClosed: OrgClosed | undefined;
+let draining = false;
+let unhandled = false;
+
+/**
+ * Register the function that deletes what the app stores for a closed
+ * organization. When an organization closes in Stackure, every app it used
+ * that another organization added is asked to delete what it stores for it
+ * and for the organizations under it.
+ *
+ * `accountId` is the closed organization's ID, the same value as
+ * `User.account_id`. There is no scheduled job, endpoint or setting to add.
+ * The SDK checks once when `onOrgClosed` is called, and Stackure reports new
+ * closures on the session checks the SDK already makes. The SDK then runs the
+ * function in the background, once for each closed organization, and tells
+ * Stackure each one is done when the function returns or its promise
+ * resolves. Calling `onOrgClosed` again replaces the function.
+ *
+ * The same organization can arrive again, for example when the app stops
+ * between deleting and telling Stackure, so the function must also succeed
+ * when there is nothing left to delete. When it throws or its promise
+ * rejects, the SDK logs it and tries that organization again on a later
+ * check, at least 5 minutes later. Stackure keeps each one waiting for 1 year.
+ *
+ * Until `onOrgClosed` is registered, the SDK logs once that closed
+ * organizations are waiting, and the app's page in Stackure shows how many.
+ * Only the app secret receives closed organizations; the development secret
+ * never does.
+ *
+ * @example
+ * ```typescript
+ * onOrgClosed(async (accountId) => {
+ *   await db.deleteOrg(accountId);
+ * });
+ * ```
+ */
+export function onOrgClosed(fn: (accountId: string) => unknown): void {
+  orgClosed = fn;
+  drainEvents();
+}
+
+function noteEvents(waiting = 0): void {
+  if (waiting <= 0) return;
+  if (!orgClosed) {
+    if (!unhandled) {
+      unhandled = true;
+      const orgs = waiting === 1 ? '1 closed organization is' : `${waiting} closed organizations are`;
+      console.error(`stackure: ${orgs} waiting for this app to delete their data. Register stackure.onOrgClosed to delete it.`);
+    }
+    return;
+  }
+  drainEvents();
+}
+
+function drainEvents(): void {
+  const fn = orgClosed;
+  if (!fn || draining) return;
+  draining = true;
+  processEvents(fn)
+    .catch((e: unknown) => {
+      console.error('stackure: closed organizations not deleted yet:', e instanceof Error ? e.message : String(e));
+    })
+    .finally(() => {
+      draining = false;
+    });
+}
+
+async function processEvents(fn: OrgClosed): Promise<void> {
+  let ack: string[] = [];
+  for (;;) {
+    const res = await takeEvents(ack, MAX_EVENTS);
+    ack = [];
+    let err: Error | undefined;
+    for (const e of res.events) {
+      if (e.type !== 'org.closed') continue;
+      err = await runOrgClosed(fn, e.data.account_id);
+      if (err) break;
+      ack.push(e.id);
+    }
+    if (!err && res.more) continue;
+    if (ack.length > 0) {
+      try {
+        await takeEvents(ack, 0);
+      } catch (e) {
+        err ??= e instanceof Error ? e : new Error(String(e));
+      }
+    }
+    if (err) throw err;
+    return;
+  }
+}
+
+async function runOrgClosed(fn: OrgClosed, accountId: string): Promise<Error | undefined> {
+  try {
+    await fn(accountId);
+    return undefined;
+  } catch (e) {
+    return new Error(`deleting organization ${accountId}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function takeEvents(ack: string[], max: number): Promise<AppEvents> {
+  return request<AppEvents>('POST', '/api/public/events', {
+    body: { app_id: appId(), ack, max_events: max },
+  });
+}
+
 function getWithSession<T>(
   path: string,
   query: Record<string, string> | string[][],
@@ -373,18 +496,30 @@ function withFacts<T extends Session>(s: T): T {
   return s;
 }
 
+interface Validated {
+  events_waiting?: number;
+}
+
+function noteWaiting<T extends Validated>(s: T): T {
+  noteEvents(s.events_waiting);
+  delete s.events_waiting;
+  return s;
+}
+
 export interface McpSession extends Session {
   www_authenticate?: string;
 }
 
 export async function validateMcp(token: string, mcp: string, req: IncomingMessage): Promise<McpSession> {
   return withFacts(
-    await request<McpSession>('GET', '/api/public/auth/session/validate', {
-      query: { app_id: appId(), mcp },
-      ua: req.headers['user-agent'] ?? '',
-      ip: clientIp(req),
-      credential: isUUID(token) ? token : '',
-    }),
+    noteWaiting(
+      await request<McpSession & Validated>('GET', '/api/public/auth/session/validate', {
+        query: { app_id: appId(), mcp },
+        ua: req.headers['user-agent'] ?? '',
+        ip: clientIp(req),
+        credential: isUUID(token) ? token : '',
+      }),
+    ),
   );
 }
 
