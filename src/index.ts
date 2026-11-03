@@ -1,6 +1,6 @@
 export { auth, logout, mcp, userFromRequest, verify } from './middleware.js';
 export type { StackureRequest } from './middleware.js';
-export { directoryTeams, directoryUsers, sendMagicLink, validateSession } from './stackure.js';
+export { directoryTeams, directoryUsers, onOrgClosed, sendMagicLink, validateSession } from './stackure.js';
 export type {
   DirectoryOptions,
   DirectoryPage,
