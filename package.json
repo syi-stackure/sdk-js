@@ -33,8 +33,7 @@
     "typescript"
   ],
   "author": {
-    "name": "Stackure",
-    "email": "noreply@stackure.com"
+    "name": "Stackure"
   },
   "license": "MIT",
   "engines": {
