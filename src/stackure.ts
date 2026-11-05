@@ -261,18 +261,7 @@ export async function sendMagicLink(email: string): Promise<MagicLinkResponse> {
   });
 }
 
-/**
- * Validate the request's session against Stackure. Throws `StackureError`.
- * A request without a well-formed session token gets the sign-in URL
- * without a Stackure call.
- *
- * Most callers want `verify()` or `auth()` instead.
- */
-export async function validateSession(req: IncomingMessage): Promise<Session> {
-  return validateToken(sessionToken(req), req);
-}
-
-export async function validateToken(token: string, req: IncomingMessage, dev?: DevSignIn): Promise<Session> {
+export async function validateToken(token: string, req: IncomingMessage, dev?: DevSignIn): Promise<Session & Validated> {
   const id = appId();
 
   if (!isUUID(token) && !dev) {
@@ -285,9 +274,7 @@ export async function validateToken(token: string, req: IncomingMessage, dev?: D
     query['challenge'] = dev.challenge;
   }
   return withFacts(
-    noteWaiting(
-      await getWithSession<Session & Validated>('/api/public/auth/session/validate', query, isUUID(token) ? token : '', req),
-    ),
+    await getWithSession<Session & Validated>('/api/public/auth/session/validate', query, isUUID(token) ? token : '', req),
   );
 }
 
@@ -406,7 +393,7 @@ export function onOrgClosed(fn: (accountId: string) => unknown): void {
   drainEvents();
 }
 
-function noteEvents(waiting = 0): void {
+export function noteEvents(waiting = 0): void {
   if (waiting <= 0) return;
   if (!orgClosed) {
     if (!unhandled) {
@@ -496,30 +483,22 @@ function withFacts<T extends Session>(s: T): T {
   return s;
 }
 
-interface Validated {
+export interface Validated {
   events_waiting?: number;
-}
-
-function noteWaiting<T extends Validated>(s: T): T {
-  noteEvents(s.events_waiting);
-  delete s.events_waiting;
-  return s;
 }
 
 export interface McpSession extends Session {
   www_authenticate?: string;
 }
 
-export async function validateMcp(token: string, mcp: string, req: IncomingMessage): Promise<McpSession> {
+export async function validateMcp(token: string, mcp: string, req: IncomingMessage): Promise<McpSession & Validated> {
   return withFacts(
-    noteWaiting(
-      await request<McpSession & Validated>('GET', '/api/public/auth/session/validate', {
-        query: { app_id: appId(), mcp },
-        ua: req.headers['user-agent'] ?? '',
-        ip: clientIp(req),
-        credential: isUUID(token) ? token : '',
-      }),
-    ),
+    await request<McpSession & Validated>('GET', '/api/public/auth/session/validate', {
+      query: { app_id: appId(), mcp },
+      ua: req.headers['user-agent'] ?? '',
+      ip: clientIp(req),
+      credential: isUUID(token) ? token : '',
+    }),
   );
 }
 

@@ -13,6 +13,7 @@ import {
   cookie,
   exchangeCode,
   isLoopback,
+  noteEvents,
   reqUrl,
   sessionToken,
   signOut,
@@ -61,7 +62,7 @@ export async function verify(req: IncomingMessage): Promise<VerifyResult> {
 async function check(req: IncomingMessage, dev?: DevSignIn): Promise<VerifyResult> {
   let session: Session;
   try {
-    session = await validateToken(sessionToken(req), req, dev);
+    session = await validate(sessionToken(req), req, dev);
   } catch (e) {
     return { authenticated: false, error: verifyFailed(e) };
   }
@@ -79,6 +80,23 @@ async function check(req: IncomingMessage, dev?: DevSignIn): Promise<VerifyResul
   }
 
   return { authenticated: true, user };
+}
+
+/**
+ * Validate the request's session against Stackure. Throws `StackureError`.
+ * A request without a well-formed session token gets the sign-in URL
+ * without a Stackure call.
+ *
+ * Most callers want `verify()` or `auth()` instead.
+ */
+export async function validateSession(req: IncomingMessage): Promise<Session> {
+  return validate(sessionToken(req), req);
+}
+
+async function validate(token: string, req: IncomingMessage, dev?: DevSignIn): Promise<Session> {
+  const { events_waiting, ...session } = await validateToken(token, req, dev);
+  noteEvents(events_waiting);
+  return session;
 }
 
 function verifyFailed(e: unknown): VerifyError {
@@ -164,7 +182,7 @@ async function adoptToken(req: StackureRequest, res: ServerResponse): Promise<bo
   if (!token) return false;
   let session: Session;
   try {
-    session = await validateToken(token, req);
+    session = await validate(token, req);
   } catch (e) {
     refuse(req, res, verifyFailed(e));
     return true;
@@ -315,6 +333,7 @@ export function mcp() {
       console.error('stackure: mcp verification error:', why);
     });
     if (!session) return deny(res, 503, 'unavailable');
+    noteEvents(session.events_waiting);
 
     const user = session.user;
     if (!session.authenticated || !user) {
