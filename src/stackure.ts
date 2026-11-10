@@ -124,7 +124,6 @@ interface CallOpts {
   bearer?: string;
   credential?: string;
   ignoreBody?: boolean;
-  redirect?: 'manual';
   ua?: string;
   ip?: string;
   seen?: (h: Headers) => void;
@@ -159,7 +158,7 @@ async function request<T>(method: string, path: string, o: CallOpts = {}): Promi
         method,
         headers,
         ...(body !== undefined && { body }),
-        redirect: o.redirect ?? 'follow',
+        redirect: 'manual',
         signal,
       });
     } catch (e) {
@@ -326,7 +325,7 @@ async function directory<T>(path: string, req: IncomingMessage, o: DirectoryOpti
   if (!isUUID(token)) throw new StackureError('auth', 'invalid session');
   if (o.query) query.push(['q', o.query]);
   if (o.cursor) query.push(['cursor', o.cursor]);
-  if (o.limit !== undefined) query.push(['limit', String(o.limit)]);
+  if (o.limit) query.push(['limit', String(o.limit)]);
   for (const id of o.ids ?? []) query.push(['id', id]);
   const h = new Headers();
   const page: DirectoryPage<T> = {
@@ -506,7 +505,6 @@ export async function signOut(token: string, req: IncomingMessage): Promise<void
   return request<void>('POST', '/api/public/auth/sign-out', {
     bearer: token,
     ignoreBody: true,
-    redirect: 'manual',
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
   });

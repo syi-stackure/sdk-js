@@ -132,14 +132,30 @@ const SESSION_MAX_AGE = 7 * 24 * 3600;
 const CODE_MAX_AGE = 60;
 const VERIFIER_MAX_AGE = 15 * 60;
 
-async function readBody(req: IncomingMessage): Promise<string> {
+function peekBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const c of req) {
-    size += (c as Buffer).length;
-    if (size <= MAX_HANDOFF_BODY) chunks.push(c as Buffer);
-  }
-  return size > MAX_HANDOFF_BODY ? '' : Buffer.concat(chunks).toString();
+  const atEnd = () =>
+    size >= Number(req.headers['content-length']) || (req.complete && req.readableLength === 0);
+  if (req.readableEnded || atEnd()) return Promise.resolve('');
+
+  return new Promise((resolve) => {
+    const done = () => {
+      req.off('readable', more).off('end', done).off('close', done).off('error', done);
+      if (!req.readableEnded) for (const c of chunks.toReversed()) req.unshift(c);
+      resolve(size > MAX_HANDOFF_BODY ? '' : Buffer.concat(chunks).toString());
+    };
+    const more = () => {
+      while (size <= MAX_HANDOFF_BODY && !atEnd()) {
+        const c: Buffer | null = req.read();
+        if (c === null) break;
+        chunks.push(c);
+        size += c.length;
+      }
+      if (size > MAX_HANDOFF_BODY || atEnd()) done();
+    };
+    req.on('readable', more).on('end', done).on('close', done).on('error', done);
+  });
 }
 
 async function formField(req: StackureRequest, field: string, origins: string[]): Promise<string> {
@@ -151,8 +167,7 @@ async function formField(req: StackureRequest, field: string, origins: string[])
 
   const b = req.body;
   if (b && typeof b === 'object') return String((b as Record<string, unknown>)[field] ?? '');
-  if (typeof b !== 'string') req.body = await readBody(req);
-  const raw = String(req.body);
+  const raw = typeof b === 'string' ? b : await peekBody(req);
   return raw.length > MAX_HANDOFF_BODY ? '' : (new URLSearchParams(raw).get(field) ?? '');
 }
 
