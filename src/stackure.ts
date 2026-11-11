@@ -1,39 +1,26 @@
 import type { IncomingMessage } from 'node:http';
+import {
+  DIRECTORY_TEAMS_PATH,
+  DIRECTORY_USERS_PATH,
+  EVENTS_PATH,
+  EXCHANGE_PATH,
+  MAGIC_LINK_PATH,
+  MAX_EVENTS,
+  MAX_RETRIES,
+  PLATFORM_COOKIE,
+  REQUEST_TIMEOUT_MS,
+  RETRY_DELAY_MS,
+  SESSION_COOKIE,
+  SIGN_IN_PAGE,
+  SIGN_OUT_PATH,
+  VALIDATE_PATH,
+  appId,
+  appSecret,
+  configuredAppSecret,
+  requiredBaseUrl,
+} from './config.js';
 import { StackureError } from './errors.js';
-import { isUUID, validateEmail } from './validation.js';
-
-const REQUEST_TIMEOUT_MS = 2000;
-const MAX_RETRIES = 1;
-const RETRY_DELAY_MS = 500;
-const MAX_EVENTS = 100;
-
-export const SESSION_COOKIE = 'session';
-export const TOKEN_PARAM = 'session_token';
-export const CODE_PARAM = 'stackure_code';
-export const CODE_COOKIE = 'stackure_code';
-export const VERIFIER_COOKIE = 'stackure_verifier';
-
-export function origin(): string {
-  const base = baseUrl();
-  return base ? new URL(base).origin : '';
-}
-
-export function baseUrl(): string {
-  return (process.env['STACKURE_BASE_URL'] ?? '').replace(/\/+$/, '');
-}
-
-export function appSecret(): string {
-  const v = process.env['STACKURE_APP_SECRET'];
-  if (!v) throw new StackureError('validation', 'STACKURE_APP_SECRET is not set');
-  return v;
-}
-
-export function appId(): string {
-  const v = process.env['STACKURE_APP_ID'];
-  if (!v) throw new StackureError('validation', 'STACKURE_APP_ID is not set');
-  if (!isUUID(v)) throw new StackureError('validation', 'invalid STACKURE_APP_ID format (must be a valid UUID)');
-  return v;
-}
+import { isLoopbackHost, isUUID, validateEmail } from './validation.js';
 
 /** An authenticated Stackure user. */
 export interface User {
@@ -118,7 +105,6 @@ export interface DevSignIn {
 
 interface CallOpts {
   body?: unknown;
-  once?: boolean;
   query?: Record<string, string> | string[][];
   token?: string;
   bearer?: string;
@@ -130,23 +116,22 @@ interface CallOpts {
 }
 
 async function request<T>(method: string, path: string, o: CallOpts = {}): Promise<T> {
-  if (!baseUrl()) throw new StackureError('validation', 'STACKURE_BASE_URL is not set');
-  const url = baseUrl() + path + (o.query ? '?' + new URLSearchParams(o.query) : '');
-  const headers: Record<string, string> = o.bearer
-    ? { Authorization: `Bearer ${o.bearer}` }
-    : { 'X-App-Secret': appSecret() };
+  const url = requiredBaseUrl() + path + (o.query ? '?' + new URLSearchParams(o.query) : '');
+  const secret = o.bearer ? configuredAppSecret() : appSecret();
+  const headers: Record<string, string> = secret ? { 'X-App-Secret': secret } : {};
+  if (o.bearer) headers['Authorization'] = `Bearer ${o.bearer}`;
   if (o.credential) headers['Authorization'] = `Bearer ${o.credential}`;
   if (o.body !== undefined) headers['Content-Type'] = 'application/json';
   if (o.ua) headers['User-Agent'] = o.ua;
-  if (o.ip) headers['X-Forwarded-For'] = o.ip;
-  if (o.token) headers['Cookie'] = `${SESSION_COOKIE}=${o.token}`;
+  if (o.ip) headers['Stackure-Client-IP'] = o.ip;
+  if (o.token) headers['Cookie'] = `${PLATFORM_COOKIE}=${o.token}`;
   const body = o.body === undefined ? undefined : JSON.stringify(o.body);
 
   const start = Date.now();
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const timeout = () => new StackureError('timeout', `request timed out after ${REQUEST_TIMEOUT_MS}ms`);
   const canRetry = (attempt: number) =>
-    !o.once && attempt < MAX_RETRIES && Date.now() - start + RETRY_DELAY_MS < REQUEST_TIMEOUT_MS;
+    method === 'GET' && attempt < MAX_RETRIES && Date.now() - start + RETRY_DELAY_MS < REQUEST_TIMEOUT_MS;
 
   let last: StackureError | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -237,8 +222,7 @@ export function sessionToken(req: IncomingMessage): string {
 }
 
 export function isLoopback(req: IncomingMessage): boolean {
-  const host = (req.headers.host ?? '').toLowerCase().replace(/:\d+$/, '');
-  return host === 'localhost' || host === '127.0.0.1';
+  return isLoopbackHost(req.headers.host ?? '');
 }
 
 export function bearerToken(req: IncomingMessage): string {
@@ -255,7 +239,7 @@ export function bearerToken(req: IncomingMessage): string {
  */
 export async function sendMagicLink(email: string): Promise<MagicLinkResponse> {
   validateEmail(email);
-  return request<MagicLinkResponse>('POST', '/api/public/auth/magic-link/send', {
+  return request<MagicLinkResponse>('POST', MAGIC_LINK_PATH, {
     body: { user_email: email, app_id: appId() },
   });
 }
@@ -264,7 +248,7 @@ export async function validateToken(token: string, req: IncomingMessage, dev?: D
   const id = appId();
 
   if (!isUUID(token) && !dev) {
-    return { authenticated: false, sign_in_url: `${baseUrl()}/sign-in/magic-link?app_id=${id}` };
+    return { authenticated: false, sign_in_url: `${requiredBaseUrl()}${SIGN_IN_PAGE}?app_id=${id}` };
   }
 
   const query: Record<string, string> = { app_id: id };
@@ -273,14 +257,13 @@ export async function validateToken(token: string, req: IncomingMessage, dev?: D
     query['challenge'] = dev.challenge;
   }
   return withFacts(
-    await getWithSession<Session & Validated>('/api/public/auth/session/validate', query, isUUID(token) ? token : '', req),
+    await getWithSession<Session & Validated>(VALIDATE_PATH, query, isUUID(token) ? token : '', req),
   );
 }
 
 export async function exchangeCode(code: string, verifier: string, req: IncomingMessage): Promise<string> {
-  const res = await request<{ session_token?: string }>('POST', '/api/public/auth/session/exchange', {
+  const res = await request<{ session_token?: string }>('POST', EXCHANGE_PATH, {
     body: { app_id: appId(), code, verifier },
-    once: true,
     ua: req.headers['user-agent'] ?? '',
     ip: clientIp(req),
   });
@@ -302,7 +285,7 @@ export async function exchangeCode(code: string, verifier: string, req: Incoming
  * ```
  */
 export function directoryUsers(req: IncomingMessage, opts: DirectoryOptions = {}): Promise<DirectoryPage<DirectoryUser>> {
-  return directory('/api/public/directory/users', req, opts);
+  return directory(DIRECTORY_USERS_PATH, req, opts);
 }
 
 /**
@@ -316,7 +299,7 @@ export function directoryUsers(req: IncomingMessage, opts: DirectoryOptions = {}
  * ```
  */
 export function directoryTeams(req: IncomingMessage, opts: DirectoryOptions = {}): Promise<DirectoryPage<Team>> {
-  return directory('/api/public/directory/teams', req, opts);
+  return directory(DIRECTORY_TEAMS_PATH, req, opts);
 }
 
 async function directory<T>(path: string, req: IncomingMessage, o: DirectoryOptions): Promise<DirectoryPage<T>> {
@@ -453,7 +436,7 @@ async function runOrgClosed(fn: OrgClosed, accountId: string): Promise<Error | u
 }
 
 async function takeEvents(ack: string[], max: number): Promise<AppEvents> {
-  return request<AppEvents>('POST', '/api/public/events', {
+  return request<AppEvents>('POST', EVENTS_PATH, {
     body: { app_id: appId(), ack, max_events: max },
   });
 }
@@ -492,7 +475,7 @@ export interface McpSession extends Session {
 
 export async function validateMcp(token: string, mcp: string, req: IncomingMessage): Promise<McpSession & Validated> {
   return withFacts(
-    await request<McpSession & Validated>('GET', '/api/public/auth/session/validate', {
+    await request<McpSession & Validated>('GET', VALIDATE_PATH, {
       query: { app_id: appId(), mcp },
       ua: req.headers['user-agent'] ?? '',
       ip: clientIp(req),
@@ -502,7 +485,7 @@ export async function validateMcp(token: string, mcp: string, req: IncomingMessa
 }
 
 export async function signOut(token: string, req: IncomingMessage): Promise<void> {
-  return request<void>('POST', '/api/public/auth/sign-out', {
+  return request<void>('POST', SIGN_OUT_PATH, {
     bearer: token,
     ignoreBody: true,
     ua: req.headers['user-agent'] ?? '',

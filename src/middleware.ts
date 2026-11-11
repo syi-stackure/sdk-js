@@ -4,11 +4,22 @@ import type { TLSSocket } from 'node:tls';
 import { StackureError } from './errors.js';
 import {
   CODE_COOKIE,
+  CODE_MAX_AGE,
   CODE_PARAM,
+  HOME_PAGE,
+  MAX_HANDOFF_BODY,
   SESSION_COOKIE,
+  SESSION_MAX_AGE,
+  SIGN_IN_PAGE,
+  SIGN_OUT_PAGE,
   TOKEN_PARAM,
+  VERIFIER_BYTES,
   VERIFIER_COOKIE,
+  VERIFIER_MAX_AGE,
   baseUrl,
+  origin,
+} from './config.js';
+import {
   bearerToken,
   cookie,
   exchangeCode,
@@ -19,7 +30,6 @@ import {
   signOut,
   validateMcp,
   validateToken,
-  origin,
 } from './stackure.js';
 import type { DevSignIn, Session, User, VerifyError, VerifyResult } from './stackure.js';
 import { isUUID } from './validation.js';
@@ -110,7 +120,7 @@ function wantsHtml(req: IncomingMessage): boolean {
 }
 
 function failurePage(message: 'appUnavailable' | 'localhostFailed'): string {
-  return `${baseUrl()}/sign-in/magic-link?state=error&message=${message}`;
+  return `${baseUrl()}${SIGN_IN_PAGE}?state=error&message=${message}`;
 }
 
 function headerLines(req: IncomingMessage, name: string): number {
@@ -126,11 +136,6 @@ function sameOriginPost(req: IncomingMessage): boolean {
   if (!m || (isHttps(req) && m[1]!.toLowerCase() !== 'https')) return false;
   return m[2]!.toLowerCase() === (req.headers.host ?? '').toLowerCase();
 }
-
-const MAX_HANDOFF_BODY = 4096;
-const SESSION_MAX_AGE = 7 * 24 * 3600;
-const CODE_MAX_AGE = 60;
-const VERIFIER_MAX_AGE = 15 * 60;
 
 function peekBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
@@ -250,7 +255,8 @@ async function redeemCode(req: StackureRequest, res: ServerResponse): Promise<bo
 /**
  * Middleware that enforces authentication, and completes Stackure's sign-in
  * handoff by validating the POSTed `session_token` (an app-scoped session
- * token valid only for this app) and storing it as a cookie on your domain.
+ * token valid only for this app) and storing it as a `stackure_session`
+ * cookie on your domain.
  *
  * On success the user is attached to `req.user` (see `userFromRequest`).
  * Browser requests (Accept: text/html) redirect to sign-in on 401, and to a
@@ -277,7 +283,7 @@ export function auth() {
     const local = isLoopback(req);
     if (local && ((await stashCode(req, res)) || (await redeemCode(req, res)))) return;
 
-    const verifier = local ? randomBytes(32).toString('base64url') : '';
+    const verifier = local ? randomBytes(VERIFIER_BYTES).toString('base64url') : '';
     const result = await check(req, local ? devSignIn(req, verifier) : undefined);
     const err = result.error;
 
@@ -382,7 +388,7 @@ export function mcp() {
 export async function logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (res.headersSent) return;
   if (!sameOriginPost(req)) {
-    redirect(res, 303, baseUrl() + '/signout');
+    redirect(res, 303, baseUrl() + SIGN_OUT_PAGE);
     return;
   }
 
@@ -391,5 +397,5 @@ export async function logout(req: IncomingMessage, res: ServerResponse): Promise
   if (res.headersSent) return;
 
   setCookie(res, SESSION_COOKIE, '', isHttps(req), 0);
-  redirect(res, 303, baseUrl() + (ok ? '/' : '/signout'));
+  redirect(res, 303, baseUrl() + (ok ? HOME_PAGE : SIGN_OUT_PAGE));
 }

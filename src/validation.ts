@@ -19,3 +19,8 @@ export function validateEmail(email: string): void {
 export function isUUID(value: string): boolean {
   return UUID_REGEX.test(value);
 }
+
+export function isLoopbackHost(host: string): boolean {
+  const name = host.toLowerCase().replace(/:\d+$/, '');
+  return name === 'localhost' || name === '127.0.0.1';
+}
